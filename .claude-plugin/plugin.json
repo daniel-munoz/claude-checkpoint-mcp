@@ -1,0 +1,19 @@
+{
+  "name": "claude-checkpoint-mcp",
+  "displayName": "Claude Checkpoint MCP",
+  "description": "Local MCP server to save session state, surviving crashes and context limits.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tenzin"
+  },
+  "homepage": "https://github.com/tenlean/claude-checkpoint-mcp",
+  "repository": "https://github.com/tenlean/claude-checkpoint-mcp",
+  "license": "MIT",
+  "mcpServers": {
+    "claude-checkpoint": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"]
+    }
+  }
+}
