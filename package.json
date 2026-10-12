@@ -17,8 +17,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js && chmod +x dist/index.js",
-    "dev": "tsc -w",
+    "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js && chmod +x dist/index.js && mkdir -p plugin/dist && cp dist/index.js plugin/dist/index.js",
+    "dev": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --watch",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run",
     "inspect": "npx @modelcontextprotocol/inspector node dist/index.js",

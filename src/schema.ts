@@ -1,8 +1,6 @@
-import { createRequire } from "node:module";
 import { z } from "zod";
-
-// Resolves from both src/ (tests) and dist/ (runtime): package.json is one level up.
-const pkg = createRequire(import.meta.url)("../package.json") as { name: string; version: string };
+// Inlined by the bundler, so the built server doesn't need package.json beside it at runtime.
+import pkg from "../package.json" with { type: "json" };
 
 export const GENERATOR = { name: pkg.name, version: pkg.version } as const;
 export const CHECKPOINT_VERSION = 1;

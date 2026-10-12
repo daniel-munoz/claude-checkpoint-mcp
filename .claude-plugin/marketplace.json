@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "claude-checkpoint-mcp",
-      "source": "./",
+      "source": "./plugin",
       "description": "Local MCP server to save session state, surviving crashes and context limits.",
       "version": "0.1.0",
       "author": {
