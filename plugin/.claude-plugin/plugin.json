@@ -9,11 +9,24 @@
   "homepage": "https://github.com/tenlean/claude-checkpoint-mcp",
   "repository": "https://github.com/tenlean/claude-checkpoint-mcp",
   "license": "MIT",
+  "keywords": [
+    "checkpoint",
+    "context",
+    "session",
+    "resume",
+    "crash-recovery",
+    "mcp"
+  ],
+  "documentationUrl": "https://github.com/tenlean/claude-checkpoint-mcp#readme",
+  "supportUrl": "https://github.com/tenlean/claude-checkpoint-mcp/issues",
+  "privacyPolicyUrl": "https://github.com/tenlean/claude-checkpoint-mcp#security--privacy",
   "mcpServers": {
     "claude-checkpoint": {
       "type": "stdio",
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/index.js"]
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/dist/index.js"
+      ]
     }
   }
 }
