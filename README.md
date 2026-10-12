@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js ≥ 20](https://img.shields.io/badge/node-%E2%89%A520-339933.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-stdio-8A2BE2.svg)](https://modelcontextprotocol.io)
+[![M8ven Score](https://m8ven.ai/badge/mcp/tenlean-claude-checkpoint-mcp-tk5413?v=01ac4426747fdbc78df3e1d246dfbb50)](https://m8ven.ai/mcp/tenlean-claude-checkpoint-mcp-tk5413?s=readme)
 
 `claude-checkpoint-mcp` is a local [Model Context Protocol](https://modelcontextprotocol.io) server with two tools:
 
