@@ -1,4 +1,4 @@
-<img src=".claude-plugin/icon.png" alt="" width="96" height="96" align="right">
+<img src=".claude-plugin/icon.png" alt="" width="56" height="56" align="right">
 
 # claude-checkpoint-mcp
 
