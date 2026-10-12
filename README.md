@@ -112,7 +112,16 @@ The server entry point is now at `dist/index.js`.
 
 ### Claude Code
 
-Register the server once for your user account, so it's available in every project:
+**As a plugin (easiest).** This repo is also a Claude Code plugin marketplace. You don't need to clone or build anything:
+
+```sh
+claude plugin marketplace add tenlean/claude-checkpoint-mcp
+claude plugin install claude-checkpoint-mcp@tenlean
+```
+
+Restart Claude Code, then `/mcp` should show `plugin:claude-checkpoint-mcp:claude-checkpoint` as connected.
+
+**Manual setup.** If you cloned the repo, register the server once for your user account, so it's available in every project:
 
 ```sh
 # Run from the claude-checkpoint-mcp directory

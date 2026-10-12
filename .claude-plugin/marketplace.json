@@ -1,0 +1,27 @@
+{
+  "name": "tenlean",
+  "description": "Claude Code plugins by Tenzin.",
+  "owner": {
+    "name": "Tenzin"
+  },
+  "plugins": [
+    {
+      "name": "claude-checkpoint-mcp",
+      "source": "./",
+      "description": "Local MCP server to save session state, surviving crashes and context limits.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Tenzin"
+      },
+      "homepage": "https://github.com/tenlean/claude-checkpoint-mcp",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "mcp",
+        "checkpoint",
+        "context",
+        "session"
+      ]
+    }
+  ]
+}
