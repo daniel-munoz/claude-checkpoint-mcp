@@ -1,3 +1,5 @@
+<img src=".claude-plugin/icon.png" alt="" width="96" height="96" align="right">
+
 # claude-checkpoint-mcp
 
 **Save your Claude Code session state locally, so a crash, `/clear`, or context limit doesn't make Claude rebuild context from scratch.**
