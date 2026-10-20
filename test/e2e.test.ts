@@ -150,6 +150,15 @@ describe("tools over MCP", () => {
     expect(text).toContain("no git here");
   });
 
+  it("includes the brief in structuredContent, which clients may show the model instead of text", async () => {
+    const dir = tempDir();
+    await call("save_session_checkpoint", { projectRoot: dir, goal: "Ship it", nextSteps: ["Write tests"] });
+    const { data, text } = await call("load_session_checkpoint", { projectRoot: dir });
+    expect(data.brief).toBe(text);
+    expect(data.brief).toContain("Ship it");
+    expect(data.brief).toContain("Write tests");
+  });
+
   it("returns a tool error for a bad projectRoot", async () => {
     const { result, text } = await call("save_session_checkpoint", { projectRoot: "relative", goal: "g" });
     expect(result.isError).toBe(true);

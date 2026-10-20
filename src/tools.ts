@@ -118,6 +118,7 @@ const loadOutput = {
     .nullable()
     .optional(),
   warnings: z.array(z.string()),
+  brief: z.string().optional(),
   checkpoint: z.record(z.unknown()).optional(),
 };
 
@@ -297,7 +298,9 @@ async function load(
       updatedAt: checkpoint.updatedAt,
       drift,
       warnings,
-      ...(format === "full" ? { checkpoint } : {}),
+      // Some clients (Claude Code) show the model structuredContent instead of the text content,
+      // so the brief has to be here too or the model never sees it.
+      ...(format === "full" ? { checkpoint } : { brief: text }),
     },
   };
 }

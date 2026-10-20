@@ -22022,6 +22022,7 @@ var loadOutput = {
     changedSince: external_exports.array(external_exports.string())
   }).nullable().optional(),
   warnings: external_exports.array(external_exports.string()),
+  brief: external_exports.string().optional(),
   checkpoint: external_exports.record(external_exports.unknown()).optional()
 };
 var CHECKPOINT_FILES = /* @__PURE__ */ new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
@@ -22164,7 +22165,9 @@ async function load(format, projectRoot, clientRoot) {
       updatedAt: checkpoint.updatedAt,
       drift: drift2,
       warnings,
-      ...format === "full" ? { checkpoint } : {}
+      // Some clients (Claude Code) show the model structuredContent instead of the text content,
+      // so the brief has to be here too or the model never sees it.
+      ...format === "full" ? { checkpoint } : { brief: text }
     }
   };
 }
