@@ -5,7 +5,8 @@ import pkg from "../package.json" with { type: "json" };
 export const GENERATOR = { name: pkg.name, version: pkg.version } as const;
 export const CHECKPOINT_VERSION = 1;
 export const CHECKPOINT_FILENAME = ".claude-checkpoint";
-export const MAX_FILE_BYTES = 64 * 1024;
+export const MAX_FILE_KB = 64;
+export const MAX_FILE_BYTES = MAX_FILE_KB * 1024;
 
 export const LIMITS = {
   goal: 500,

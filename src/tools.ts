@@ -11,7 +11,7 @@ import {
   CHECKPOINT_VERSION,
   GENERATOR,
   LIMITS,
-  MAX_FILE_BYTES,
+  MAX_FILE_KB,
   type Checkpoint,
   type ModifiedFile,
   type RecentCommand,
@@ -126,7 +126,7 @@ function buildCheckpoint(input: CheckpointInput): Checkpoint {
     recentCommands: content.recentCommands,
     meta: { redactions: redactor.count, truncated: content.truncated || files.truncated },
   };
-  if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
+  if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_KB} KB.`);
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
   return checkpoint;
 }

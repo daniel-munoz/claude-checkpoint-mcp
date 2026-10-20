@@ -17427,7 +17427,8 @@ var package_default = {
 var GENERATOR = { name: package_default.name, version: package_default.version };
 var CHECKPOINT_VERSION = 1;
 var CHECKPOINT_FILENAME = ".claude-checkpoint";
-var MAX_FILE_BYTES = 64 * 1024;
+var MAX_FILE_KB = 64;
+var MAX_FILE_BYTES = MAX_FILE_KB * 1024;
 var LIMITS = {
   goal: 500,
   summary: 4e3,
@@ -22246,7 +22247,7 @@ function buildCheckpoint(input) {
     recentCommands: content.recentCommands,
     meta: { redactions: redactor.count, truncated: content.truncated || files.truncated }
   };
-  if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
+  if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_KB} KB.`);
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
   return checkpoint;
 }
