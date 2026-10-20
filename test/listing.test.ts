@@ -104,3 +104,42 @@ describe("renderListing", () => {
     expect(text).toMatch(/…and 2 older/);
   });
 });
+
+describe("listCheckpoints edge cases", () => {
+  it("sorts by parsed time, not string order", async () => {
+    const root = tempDir();
+    // As strings, "…00Z" sorts after "…00.500Z" even though it is earlier.
+    put(selectorPath(root, "later"), { updatedAt: "2026-10-20T10:00:00.500Z" });
+    put(selectorPath(root, "earlier"), { updatedAt: "2026-10-20T10:00:00Z" });
+    const listing = await listCheckpoints(root, null, 0, NOW);
+    expect(listing.entries.map((e) => e.selector)).toEqual(["later", "earlier"]);
+  });
+
+  it("treats a .claude-checkpoints file as no slots and warns", async () => {
+    const root = tempDir();
+    put(checkpointPath(root), { updatedAt: at(1) });
+    writeFileSync(path.join(root, ".claude-checkpoints"), "not a directory");
+    const listing = await listCheckpoints(root, null, 0, NOW);
+    expect(listing.entries.map((e) => e.selector)).toEqual(["legacy"]);
+    expect(listing.warnings).toEqual([expect.stringMatching(/\.claude-checkpoints is not a directory/)]);
+  });
+});
+
+describe("renderListing details", () => {
+  it("keeps a multi-line goal on one line", async () => {
+    const root = tempDir();
+    put(selectorPath(root, "s1"), { updatedAt: at(1), goal: { primary: "first line\n\n  second\tline ", tasks: [] } });
+    const text = renderListing(await listCheckpoints(root, null, 0, NOW));
+    expect(text.split("\n")).toHaveLength(1);
+    expect(text).toMatch(/— first line second line$/);
+  });
+
+  it("shows resumedFrom and fromBackup", async () => {
+    const root = tempDir();
+    put(selectorPath(root, "s1"), { updatedAt: at(2), resumedFrom: "legacy" });
+    put(backupPath(selectorPath(root, "s2")), { updatedAt: at(1) });
+    const [first, second] = renderListing(await listCheckpoints(root, null, 0, NOW)).split("\n");
+    expect(first).toContain("resumed from `legacy`");
+    expect(second).toContain("from backup");
+  });
+});

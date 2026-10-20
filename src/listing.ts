@@ -31,12 +31,17 @@ const SLOT_EXT = ".json";
 const SLOT_BACKUP_EXT = SLOT_EXT + BACKUP_SUFFIX;
 
 /** Session ids that have a slot file or a slot backup under `.claude-checkpoints/`. */
-async function slotSelectors(root: string): Promise<string[]> {
+async function slotSelectors(root: string, warnings: string[]): Promise<string[]> {
   let names: string[];
   try {
     names = await readdir(path.join(root, SLOTS_DIRNAME));
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return [];
+    if (code === "ENOTDIR") {
+      warnings.push(`${SLOTS_DIRNAME} is not a directory, so no session checkpoints could be listed.`);
+      return [];
+    }
     throw err;
   }
   const ids = new Set<string>();
@@ -73,9 +78,9 @@ export async function listCheckpoints(
   limit: number,
   now: Date = new Date(),
 ): Promise<Listing> {
-  const selectors = [LEGACY_SELECTOR, ...(await slotSelectors(root))];
-  const entries: ListEntry[] = [];
   const warnings: string[] = [];
+  const selectors = [LEGACY_SELECTOR, ...(await slotSelectors(root, warnings))];
+  const entries: ListEntry[] = [];
 
   for (const selector of selectors) {
     try {
@@ -98,9 +103,15 @@ export async function listCheckpoints(
     }
   }
 
-  entries.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  entries.sort((a, b) => sortTime(b.updatedAt) - sortTime(a.updatedAt));
   const shown = limit > 0 ? entries.slice(0, limit) : entries;
   return { entries: shown, total: entries.length, omitted: entries.length - shown.length, warnings };
+}
+
+/** Milliseconds for sorting; missing or unparseable timestamps sort as oldest. */
+function sortTime(iso: string | null): number {
+  const ms = iso === null ? Number.NaN : Date.parse(iso);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
 }
 
 /** One line per checkpoint, for the model to show the user when asking which one to resume. */
@@ -113,8 +124,10 @@ export function renderListing(listing: Listing): string {
       e.branch ? `branch \`${e.branch}\`` : null,
       e.allTasksDone ? "all tasks done" : null,
       e.isCurrentSession ? "this session" : null,
+      e.resumedFrom !== undefined ? `resumed from \`${e.resumedFrom}\`` : null,
+      e.fromBackup ? "from backup" : null,
     ].filter((p) => p !== null);
-    return `- ${parts.join(" · ")} — ${e.goal}`;
+    return `- ${parts.join(" · ")} — ${(e.goal ?? "").replace(/\s+/g, " ").trim()}`;
   });
   if (listing.omitted > 0) lines.push(`- …and ${listing.omitted} older (call list_session_checkpoints with limit 0)`);
   return lines.join("\n");
