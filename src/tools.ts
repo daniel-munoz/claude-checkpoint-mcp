@@ -207,7 +207,8 @@ export function registerTools(server: McpServer, session: Session): void {
     {
       title: "Save session checkpoint",
       description:
-        "Save the current session's goal, progress, touched files and recent commands to a .claude-checkpoint file in the project, " +
+        "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project " +
+        "(.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), " +
         "so a new session can resume after a crash, /clear, or context limit without re-exploring. " +
         "Call after finishing a milestone, before risky operations, and when the conversation is getting long. " +
         "Git branch, HEAD and uncommitted files are captured automatically.",
@@ -271,22 +272,8 @@ async function save(
   const redactor = createRedactor();
   const warnings: string[] = session.warning ? [session.warning] : [];
 
-  // Sessions only ever write their own checkpoint (the legacy file when there's no session id).
-  // Until it exists, a checkpoint the session resumed from is the merge base and is recorded as resumedFrom.
-  const file = selectorPath(root, session.id ?? LEGACY_SELECTOR);
-  const own = await readCheckpoint(file).catch(() => null);
-  const adoptedSelector = own === null ? adopted.get(root) : undefined;
-  const resumedFrom = own?.checkpoint.resumedFrom ?? adoptedSelector;
-
-  let previous: LoadResult | null = null;
-  if (args.mode === "merge") {
-    previous = own ?? (adoptedSelector === undefined ? null : await readCheckpoint(selectorPath(root, adoptedSelector)).catch(() => null));
-    if (previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
-  }
-  if (previous) warnings.push(...previous.warnings);
+  const { file, previous, resumedFrom, continuing } = await saveBase(root, session, adopted.get(root), args.mode, warnings);
   const base = previous?.checkpoint;
-  // A checkpoint started from another one is a new checkpoint, not a continuation of that file.
-  const continuing = previous !== null && previous === own;
 
   const git = await snapshot(root, MAX_HASHED_CHANGES);
   const tasks = mergeTasks(base?.goal.tasks ?? [], (args.tasks ?? []).map((t) => ({ ...t, description: redactor.scrub(t.description) })));
@@ -355,6 +342,52 @@ async function save(
   };
 }
 
+/** Reads a checkpoint, reporting one that exists but can't be read instead of failing the call. */
+async function readOrWarn(file: string, selector: string, warnings: string[]): Promise<LoadResult | null> {
+  try {
+    return await readCheckpoint(file);
+  } catch (err) {
+    warnings.push(`Checkpoint ${selector} could not be read and was not used: ${(err as Error).message}`);
+    return null;
+  }
+}
+
+interface SaveBase {
+  /** The session's own checkpoint file, which the save writes. */
+  file: string;
+  /** What a merge save builds on, if anything. */
+  previous: LoadResult | null;
+  resumedFrom: string | undefined;
+  /** True when updating the session's own checkpoint (keeps its id and createdAt). */
+  continuing: boolean;
+}
+
+/**
+ * Sessions only ever write their own checkpoint (the legacy file when there's no session id).
+ * Until it exists, a checkpoint the session resumed from is the merge base and is recorded as resumedFrom.
+ */
+async function saveBase(
+  root: string,
+  session: Session,
+  adoptedSelector: string | undefined,
+  mode: "replace" | "merge",
+  warnings: string[],
+): Promise<SaveBase> {
+  const file = selectorPath(root, session.id ?? LEGACY_SELECTOR);
+  const own = await readOrWarn(file, session.id ?? LEGACY_SELECTOR, warnings);
+  const fromAdopted = own === null ? adoptedSelector : undefined;
+  const resumedFrom = own?.checkpoint.resumedFrom ?? fromAdopted;
+
+  let previous: LoadResult | null = null;
+  if (mode === "merge") {
+    previous = own ?? (fromAdopted === undefined ? null : await readOrWarn(selectorPath(root, fromAdopted), fromAdopted, warnings));
+    if (previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
+  }
+  if (previous) warnings.push(...previous.warnings);
+  // A checkpoint started from another one is a new checkpoint, not a continuation of that file.
+  return { file, previous, resumedFrom, continuing: previous !== null && previous === own };
+}
+
 async function load(
   args: LoadArgs,
   session: Session,
@@ -372,12 +405,13 @@ async function load(
       throw new CheckpointError(`no checkpoint "${args.checkpoint}" in ${root}. Call list_session_checkpoints to see the available ones.`);
     }
     if (args.checkpoint !== own) adopted.set(root, args.checkpoint);
-    return loaded(root, args.checkpoint, file, result, args.format, sessionWarnings);
+    return loaded({ root, selector: args.checkpoint, file, result, format: args.format, sessionWarnings });
   }
 
+  // An unreadable own checkpoint shows up in the list below (marked unreadable) rather than failing the call.
   const file = selectorPath(root, own);
-  const result = await readCheckpoint(file);
-  if (result !== null) return loaded(root, own, file, result, args.format, sessionWarnings);
+  const result = await readCheckpoint(file).catch(() => null);
+  if (result !== null) return loaded({ root, selector: own, file, result, format: args.format, sessionWarnings });
 
   const listing = await listCheckpoints(root, session.id, DEFAULT_LIST_LIMIT);
   if (listing.total === 0) {
@@ -415,14 +449,16 @@ function candidates(root: string, file: string, listing: Listing, sessionWarning
   };
 }
 
-async function loaded(
-  root: string,
-  selector: string,
-  file: string,
-  result: LoadResult,
-  format: "brief" | "full",
-  sessionWarnings: string[],
-): Promise<CallToolResult> {
+interface Loaded {
+  root: string;
+  selector: string;
+  file: string;
+  result: LoadResult;
+  format: "brief" | "full";
+  sessionWarnings: string[];
+}
+
+async function loaded({ root, selector, file, result, format, sessionWarnings }: Loaded): Promise<CallToolResult> {
   const { checkpoint, fromBackup } = result;
   const warnings = [...sessionWarnings, ...result.warnings];
   let drift: Drift | null = null;

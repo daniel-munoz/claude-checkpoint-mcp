@@ -21952,6 +21952,8 @@ async function writeCheckpoint(target, checkpoint) {
 }
 
 // src/listing.ts
+var SLOT_EXT = ".json";
+var SLOT_BACKUP_EXT = SLOT_EXT + BACKUP_SUFFIX;
 async function slotSelectors(root) {
   let names;
   try {
@@ -21962,7 +21964,8 @@ async function slotSelectors(root) {
   }
   const ids = /* @__PURE__ */ new Set();
   for (const name of names) {
-    const stem = name.endsWith(".json") ? name.slice(0, -5) : name.endsWith(`.json${BACKUP_SUFFIX}`) ? name.slice(0, -10) : null;
+    const ext = [SLOT_EXT, SLOT_BACKUP_EXT].find((e) => name.endsWith(e));
+    const stem = ext === void 0 ? null : name.slice(0, -ext.length);
     if (stem !== null && SESSION_ID_PATTERN.test(stem) && stem !== LEGACY_SELECTOR) ids.add(stem);
   }
   return [...ids];
@@ -22176,7 +22179,7 @@ function registerTools(server, session) {
     "save_session_checkpoint",
     {
       title: "Save session checkpoint",
-      description: "Save the current session's goal, progress, touched files and recent commands to a .claude-checkpoint file in the project, so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically.",
+      description: "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project (.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically.",
       inputSchema: saveInput,
       outputSchema: saveOutput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
@@ -22219,18 +22222,8 @@ async function save(args, session, adopted, clientRoot) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const redactor = createRedactor();
   const warnings = session.warning ? [session.warning] : [];
-  const file = selectorPath(root, session.id ?? LEGACY_SELECTOR);
-  const own = await readCheckpoint(file).catch(() => null);
-  const adoptedSelector = own === null ? adopted.get(root) : void 0;
-  const resumedFrom = own?.checkpoint.resumedFrom ?? adoptedSelector;
-  let previous = null;
-  if (args.mode === "merge") {
-    previous = own ?? (adoptedSelector === void 0 ? null : await readCheckpoint(selectorPath(root, adoptedSelector)).catch(() => null));
-    if (previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
-  }
-  if (previous) warnings.push(...previous.warnings);
+  const { file, previous, resumedFrom, continuing } = await saveBase(root, session, adopted.get(root), args.mode, warnings);
   const base = previous?.checkpoint;
-  const continuing = previous !== null && previous === own;
   const git2 = await snapshot(root, MAX_HASHED_CHANGES);
   const tasks = mergeTasks(base?.goal.tasks ?? [], (args.tasks ?? []).map((t) => ({ ...t, description: redactor.scrub(t.description) })));
   const newCommands = (args.recentCommands ?? []).map((c) => ({
@@ -22291,6 +22284,27 @@ async function save(args, session, adopted, clientRoot) {
     structuredContent: { path: file, bytes, mode: args.mode, counts, warnings }
   };
 }
+async function readOrWarn(file, selector, warnings) {
+  try {
+    return await readCheckpoint(file);
+  } catch (err) {
+    warnings.push(`Checkpoint ${selector} could not be read and was not used: ${err.message}`);
+    return null;
+  }
+}
+async function saveBase(root, session, adoptedSelector, mode, warnings) {
+  const file = selectorPath(root, session.id ?? LEGACY_SELECTOR);
+  const own = await readOrWarn(file, session.id ?? LEGACY_SELECTOR, warnings);
+  const fromAdopted = own === null ? adoptedSelector : void 0;
+  const resumedFrom = own?.checkpoint.resumedFrom ?? fromAdopted;
+  let previous = null;
+  if (mode === "merge") {
+    previous = own ?? (fromAdopted === void 0 ? null : await readOrWarn(selectorPath(root, fromAdopted), fromAdopted, warnings));
+    if (previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
+  }
+  if (previous) warnings.push(...previous.warnings);
+  return { file, previous, resumedFrom, continuing: previous !== null && previous === own };
+}
 async function load(args, session, adopted, clientRoot) {
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const sessionWarnings = session.warning ? [session.warning] : [];
@@ -22302,11 +22316,11 @@ async function load(args, session, adopted, clientRoot) {
       throw new CheckpointError(`no checkpoint "${args.checkpoint}" in ${root}. Call list_session_checkpoints to see the available ones.`);
     }
     if (args.checkpoint !== own) adopted.set(root, args.checkpoint);
-    return loaded(root, args.checkpoint, file2, result2, args.format, sessionWarnings);
+    return loaded({ root, selector: args.checkpoint, file: file2, result: result2, format: args.format, sessionWarnings });
   }
   const file = selectorPath(root, own);
-  const result = await readCheckpoint(file);
-  if (result !== null) return loaded(root, own, file, result, args.format, sessionWarnings);
+  const result = await readCheckpoint(file).catch(() => null);
+  if (result !== null) return loaded({ root, selector: own, file, result, format: args.format, sessionWarnings });
   const listing = await listCheckpoints(root, session.id, DEFAULT_LIST_LIMIT);
   if (listing.total === 0) {
     return {
@@ -22338,7 +22352,7 @@ function candidates(root, file, listing, sessionWarnings) {
     }
   };
 }
-async function loaded(root, selector, file, result, format, sessionWarnings) {
+async function loaded({ root, selector, file, result, format, sessionWarnings }) {
   const { checkpoint, fromBackup } = result;
   const warnings = [...sessionWarnings, ...result.warnings];
   let drift2 = null;

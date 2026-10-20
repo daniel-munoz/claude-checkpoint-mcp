@@ -66,6 +66,14 @@ describe("listCheckpoints", () => {
     ]);
   });
 
+  it("lists a slot with a corrupt primary but valid backup as fromBackup", async () => {
+    const root = tempDir();
+    put(backupPath(selectorPath(root, "s1")), { updatedAt: at(1), goal: { primary: "saved before", tasks: [] } });
+    writeFileSync(selectorPath(root, "s1"), "garbage");
+    const listing = await listCheckpoints(root, null, 0, NOW);
+    expect(listing.entries).toEqual([expect.objectContaining({ selector: "s1", fromBackup: true, goal: "saved before" })]);
+  });
+
   it("lists unreadable checkpoints last with a warning instead of dropping them", async () => {
     const root = tempDir();
     put(selectorPath(root, "good"), { updatedAt: at(1) });

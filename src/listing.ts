@@ -27,6 +27,9 @@ export interface Listing {
   warnings: string[];
 }
 
+const SLOT_EXT = ".json";
+const SLOT_BACKUP_EXT = SLOT_EXT + BACKUP_SUFFIX;
+
 /** Session ids that have a slot file or a slot backup under `.claude-checkpoints/`. */
 async function slotSelectors(root: string): Promise<string[]> {
   let names: string[];
@@ -38,7 +41,8 @@ async function slotSelectors(root: string): Promise<string[]> {
   }
   const ids = new Set<string>();
   for (const name of names) {
-    const stem = name.endsWith(".json") ? name.slice(0, -5) : name.endsWith(`.json${BACKUP_SUFFIX}`) ? name.slice(0, -10) : null;
+    const ext = [SLOT_EXT, SLOT_BACKUP_EXT].find((e) => name.endsWith(e));
+    const stem = ext === undefined ? null : name.slice(0, -ext.length);
     if (stem !== null && SESSION_ID_PATTERN.test(stem) && stem !== LEGACY_SELECTOR) ids.add(stem);
   }
   return [...ids];

@@ -380,3 +380,43 @@ describe("per-session save", () => {
     expect(data.warnings.some((w: string) => w.includes(".claude-checkpoints") && w.includes("not git-ignored"))).toBe(true);
   });
 });
+
+describe("review fixes", () => {
+  it("describes saving as per session", async () => {
+    const { tools } = await client.listTools();
+    const save = tools.find((t) => t.name === "save_session_checkpoint");
+    expect(save?.description).toMatch(/this session's/);
+    expect(save?.description).toContain(".claude-checkpoints/");
+  });
+
+  it("falls back to the list when the session's own checkpoint is unreadable", async () => {
+    const dir = tempDir();
+    seed(dir, "s2", "other work");
+    writeFileSync(selectorPath(dir, "s1"), "garbage");
+    const { result, data } = await callAs(await connect("s1"), "load_session_checkpoint", { projectRoot: dir });
+    expect(result.isError).toBeFalsy();
+    expect(data.found).toBe(false);
+    expect(data.candidates.map((e: { selector: string; unreadable?: string }) => [e.selector, Boolean(e.unreadable)])).toEqual([
+      ["s2", false],
+      ["s1", true],
+    ]);
+  });
+
+  it("warns when a save replaces an unreadable checkpoint", async () => {
+    const dir = tempDir();
+    mkdirSync(path.join(dir, ".claude-checkpoints"));
+    writeFileSync(selectorPath(dir, "s1"), "garbage");
+    const { data } = await callAs(await connect("s1"), "save_session_checkpoint", { projectRoot: dir, goal: "g", mode: "merge" });
+    expect(data.warnings.some((w: string) => /could not be read/.test(w))).toBe(true);
+  });
+
+  it("warns when the adopted checkpoint became unreadable before a merge save", async () => {
+    const dir = tempDir();
+    seed(dir, "s1", "older work");
+    const s2 = await connect("s2");
+    await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
+    writeFileSync(selectorPath(dir, "s1"), "garbage");
+    const { data } = await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "g", mode: "merge" });
+    expect(data.warnings.some((w: string) => /s1.*could not be read/.test(w))).toBe(true);
+  });
+});
