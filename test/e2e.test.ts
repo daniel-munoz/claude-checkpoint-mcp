@@ -420,3 +420,26 @@ describe("review fixes", () => {
     expect(data.warnings.some((w: string) => /s1.*could not be read/.test(w))).toBe(true);
   });
 });
+
+describe("list limits", () => {
+  it("names each list that was trimmed on a merge save and how many entries were dropped", async () => {
+    const dir = tempDir();
+    const decisions = (from: number, n: number) => Array.from({ length: n }, (_, i) => `decision ${from + i}`);
+    const commands = (n: number) => Array.from({ length: n }, (_, i) => ({ command: `cmd ${i}` }));
+    await call("save_session_checkpoint", { projectRoot: dir, goal: "g", decisions: decisions(0, 15), recentCommands: commands(50) });
+    const { data } = await call("save_session_checkpoint", {
+      projectRoot: dir,
+      goal: "g",
+      mode: "merge",
+      decisions: decisions(15, 10),
+      recentCommands: commands(3),
+    });
+    expect(data.warnings).toEqual(
+      expect.arrayContaining([
+        "Dropped the 5 oldest decisions to stay within the limit of 20.",
+        "Dropped the 3 oldest recent commands to stay within the limit of 50.",
+      ]),
+    );
+    expect(data.warnings.join("\n")).not.toMatch(/tasks/);
+  });
+});

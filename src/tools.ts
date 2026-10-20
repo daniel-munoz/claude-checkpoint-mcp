@@ -285,8 +285,11 @@ async function save(
   }));
 
   let droppedOldest = false;
-  const keepLast = <T>(items: T[], max: number): T[] => {
-    if (items.length > max) droppedOldest = true;
+  const keepLast = <T>(items: T[], max: number, label: string): T[] => {
+    if (items.length > max) {
+      droppedOldest = true;
+      warnings.push(`Dropped the ${items.length - max} oldest ${label} to stay within the limit of ${max}.`);
+    }
     return items.slice(-max);
   };
 
@@ -300,12 +303,12 @@ async function save(
     ...(session.id !== null ? { sessionId: session.id } : {}),
     ...(resumedFrom !== undefined ? { resumedFrom } : {}),
     git: git?.state ?? null,
-    goal: { primary: redactor.scrub(args.goal), tasks: keepLast(tasks, LIMITS.tasks) },
+    goal: { primary: redactor.scrub(args.goal), tasks: keepLast(tasks, LIMITS.tasks, "tasks") },
     summary: args.summary !== undefined ? redactor.scrub(args.summary) : (base?.summary ?? ""),
     nextSteps: args.nextSteps !== undefined ? args.nextSteps.map(redactor.scrub) : (base?.nextSteps ?? []),
-    decisions: keepLast(dedupe([...(base?.decisions ?? []), ...(args.decisions ?? []).map(redactor.scrub)]), LIMITS.decisions),
+    decisions: keepLast(dedupe([...(base?.decisions ?? []), ...(args.decisions ?? []).map(redactor.scrub)]), LIMITS.decisions, "decisions"),
     modifiedFiles: [],
-    recentCommands: keepLast([...(base?.recentCommands ?? []), ...newCommands], LIMITS.recentCommands),
+    recentCommands: keepLast([...(base?.recentCommands ?? []), ...newCommands], LIMITS.recentCommands, "recent commands"),
     meta: { redactions: 0, truncated: false },
   };
 
@@ -313,7 +316,6 @@ async function save(
   checkpoint.modifiedFiles = files.slice(0, LIMITS.modifiedFiles);
   const tooManyFiles = files.length > LIMITS.modifiedFiles;
   if (tooManyFiles) warnings.push(`Only the first ${LIMITS.modifiedFiles} of ${files.length} modified files were recorded.`);
-  if (droppedOldest) warnings.push("The oldest tasks, decisions or commands were dropped to stay within per-list limits.");
 
   checkpoint.meta = { redactions: redactor.count, truncated: tooManyFiles || droppedOldest };
   if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
