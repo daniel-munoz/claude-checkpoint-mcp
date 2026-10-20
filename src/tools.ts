@@ -191,7 +191,7 @@ async function save(args: SaveArgs, clientRoot: () => Promise<string | undefined
   const redactor = createRedactor();
   const warnings: string[] = [];
 
-  const previous = args.mode === "merge" ? await readCheckpoint(root).catch(() => null) : null;
+  const previous = args.mode === "merge" ? await readCheckpoint(checkpointPath(root)).catch(() => null) : null;
   if (args.mode === "merge" && previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
   if (previous) warnings.push(...previous.warnings);
   const base = previous?.checkpoint;
@@ -238,7 +238,7 @@ async function save(args: SaveArgs, clientRoot: () => Promise<string | undefined
   if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
 
-  const bytes = await writeCheckpoint(root, checkpoint);
+  const bytes = await writeCheckpoint(checkpointPath(root), checkpoint);
   if ((await isIgnored(root, CHECKPOINT_FILENAME)) === false) {
     warnings.push(`${CHECKPOINT_FILENAME} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
   }
@@ -269,7 +269,7 @@ async function load(
 ): Promise<CallToolResult> {
   const root = await resolveRoot(projectRoot, clientRoot);
   const file = checkpointPath(root);
-  const result = await readCheckpoint(root);
+  const result = await readCheckpoint(checkpointPath(root));
 
   if (result === null) {
     return {

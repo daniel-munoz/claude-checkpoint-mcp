@@ -1,19 +1,32 @@
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { chmod, copyFile, open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
+import { chmod, copyFile, mkdir, open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CHECKPOINT_FILENAME, MAX_FILE_BYTES, parseCheckpoint, type Checkpoint } from "./schema.js";
+import { LEGACY_SELECTOR, SESSION_ID_PATTERN } from "./session.js";
 
 export const BACKUP_SUFFIX = ".prev";
 const FILE_MODE = 0o600;
+const DIR_MODE = 0o700;
 
+/** Directory under the project root holding one checkpoint file per session. */
+export const SLOTS_DIRNAME = ".claude-checkpoints";
+
+/** The legacy single checkpoint file. */
 export function checkpointPath(root: string): string {
   return path.join(root, CHECKPOINT_FILENAME);
 }
 
-export function backupPath(root: string): string {
-  return checkpointPath(root) + BACKUP_SUFFIX;
+export function backupPath(file: string): string {
+  return file + BACKUP_SUFFIX;
+}
+
+/** Resolves a selector (a session id, or "legacy") to its checkpoint file; anything else is rejected. */
+export function selectorPath(root: string, selector: string): string {
+  if (selector === LEGACY_SELECTOR) return checkpointPath(root);
+  if (!SESSION_ID_PATTERN.test(selector)) throw new CheckpointError(`unknown checkpoint selector: ${JSON.stringify(selector)}`);
+  return path.join(root, SLOTS_DIRNAME, `${selector}.json`);
 }
 
 export class CheckpointError extends Error {
@@ -84,20 +97,21 @@ export interface LoadResult {
   warnings: string[];
 }
 
-/** Reads the checkpoint, falling back to the .prev backup if the primary is missing or corrupt. */
-export async function readCheckpoint(root: string): Promise<LoadResult | null> {
-  const primary = await readParsed(checkpointPath(root));
+/** Reads a checkpoint file, falling back to the .prev backup if the primary is missing or corrupt. */
+export async function readCheckpoint(file: string): Promise<LoadResult | null> {
+  const primary = await readParsed(file);
   if (isCheckpoint(primary)) {
     return { checkpoint: primary, fromBackup: false, warnings: [] };
   }
 
-  const backup = await readParsed(backupPath(root));
+  const backup = await readParsed(backupPath(file));
   if (isCheckpoint(backup)) {
+    const name = path.basename(file);
     const why = primary === "missing" ? "is missing" : `is unreadable (${summarizeError(primary)})`;
     return {
       checkpoint: backup,
       fromBackup: true,
-      warnings: [`${CHECKPOINT_FILENAME} ${why}; loaded the previous checkpoint from ${CHECKPOINT_FILENAME}${BACKUP_SUFFIX}.`],
+      warnings: [`${name} ${why}; loaded the previous checkpoint from ${name}${BACKUP_SUFFIX}.`],
     };
   }
 
@@ -135,17 +149,17 @@ export function fitToSize(checkpoint: Checkpoint): boolean {
 }
 
 /**
- * Atomically writes the checkpoint (temp file + fsync + rename, mode 0600). The current
+ * Atomically writes a checkpoint file (temp file + fsync + rename, mode 0600). The current
  * file is first copied to .prev, but only if it is valid, so a corrupt file never
  * clobbers the last good backup. Returns the number of bytes written.
  */
-export async function writeCheckpoint(root: string, checkpoint: Checkpoint): Promise<number> {
-  const target = checkpointPath(root);
+export async function writeCheckpoint(target: string, checkpoint: Checkpoint): Promise<number> {
   const data = serialize(checkpoint);
+  await mkdir(path.dirname(target), { recursive: true, mode: DIR_MODE });
 
   if (isCheckpoint(await readParsed(target))) {
-    await copyFile(target, backupPath(root));
-    await chmod(backupPath(root), FILE_MODE);
+    await copyFile(target, backupPath(target));
+    await chmod(backupPath(target), FILE_MODE);
   }
 
   const tmp = `${target}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
