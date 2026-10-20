@@ -124,32 +124,48 @@ export async function drift(
     git(root, ["diff", "--name-only", "-z", saved.head, "--"]),
   ]);
 
-  // Paths that differ from saved HEAD now, plus everything that was dirty at save time.
-  const candidates = new Set<string>(savedHashes.keys());
-  for (const c of now.changes) candidates.add(c.path);
-  if (diff !== null) for (const p of diff.split("\0")) if (p) candidates.add(p);
-  for (const p of candidates) if (ignore(p)) candidates.delete(p);
-
   const differsFromHead = diff === null ? null : new Set(diff.split("\0").filter(Boolean));
-  const untrackedNow = new Set(now.changes.filter((c) => c.status === "??").map((c) => c.path));
-  const current = await hashFiles(root, [...candidates]);
-
-  const changedSince: string[] = [];
-  for (const path of candidates) {
-    const was = savedHashes.get(path);
-    const is = current.get(path) ?? DELETED;
-    if (was !== undefined) {
-      if (was !== is) changedSince.push(path);
-    } else if (differsFromHead === null || differsFromHead.has(path) || untrackedNow.has(path)) {
-      // Clean at save time, so any difference from saved HEAD happened afterwards.
-      changedSince.push(path);
-    }
-  }
+  const candidates = driftCandidates(savedHashes, now.changes, differsFromHead, ignore);
+  const evidence: ChangeEvidence = {
+    savedHashes,
+    current: await hashFiles(root, candidates),
+    differsFromHead,
+    untrackedNow: new Set(now.changes.filter((c) => c.status === "??").map((c) => c.path)),
+  };
 
   return {
     branchChanged: now.state.branch !== saved.branch,
     currentBranch: now.state.branch,
     commitsSince: count === null ? null : Number.parseInt(count.trim(), 10),
-    changedSince: changedSince.sort(),
+    changedSince: candidates.filter((p) => changedAfterSave(p, evidence)).sort(),
   };
+}
+
+/** Paths that differ from saved HEAD now, plus everything that was dirty at save time. */
+function driftCandidates(
+  savedHashes: ReadonlyMap<string, string>,
+  changes: readonly GitChange[],
+  differsFromHead: ReadonlySet<string> | null,
+  ignore: (path: string) => boolean,
+): string[] {
+  const all = new Set([...savedHashes.keys(), ...changes.map((c) => c.path), ...(differsFromHead ?? [])]);
+  return [...all].filter((p) => !ignore(p));
+}
+
+interface ChangeEvidence {
+  /** Hashes of the files that were dirty at save time. */
+  savedHashes: ReadonlyMap<string, string>;
+  /** Hashes of the candidates now; missing files are absent. */
+  current: ReadonlyMap<string, string>;
+  /** Paths that differ from the saved HEAD now; null if the saved HEAD is unreachable. */
+  differsFromHead: ReadonlySet<string> | null;
+  untrackedNow: ReadonlySet<string>;
+}
+
+function changedAfterSave(path: string, { savedHashes, current, differsFromHead, untrackedNow }: ChangeEvidence): boolean {
+  const was = savedHashes.get(path);
+  if (was !== undefined) return was !== (current.get(path) ?? DELETED);
+  // Clean at save time, so any difference from saved HEAD happened afterwards. Without the saved
+  // HEAD there is nothing to compare against, so it counts as changed.
+  return differsFromHead === null || differsFromHead.has(path) || untrackedNow.has(path);
 }
