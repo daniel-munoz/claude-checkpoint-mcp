@@ -1,8 +1,9 @@
 import type { Drift } from "./git.js";
-import type { Checkpoint, Task } from "./schema.js";
+import type { Checkpoint, ModifiedFile, RecentCommand, Task } from "./schema.js";
 
 const BRIEF_MAX_FILES = 40;
 const BRIEF_MAX_COMMANDS = 10;
+const SHORT_SHA_LENGTH = 9;
 
 const TASK_MARK: Record<Task["status"], string> = {
   done: "[x]",
@@ -10,6 +11,10 @@ const TASK_MARK: Record<Task["status"], string> = {
   pending: "[ ]",
   blocked: "[!]",
 };
+
+export function shortSha(sha: string): string {
+  return sha.slice(0, SHORT_SHA_LENGTH);
+}
 
 export function formatAge(fromIso: string, now: Date = new Date()): string {
   const secs = Math.max(0, Math.round((now.getTime() - Date.parse(fromIso)) / 1000));
@@ -31,53 +36,46 @@ export function renderBrief(
   warnings: readonly string[],
   now: Date = new Date(),
 ): string {
-  const out: string[] = [];
+  return [
+    ...renderHeader(cp, warnings, now),
+    ...section("Goal", [cp.goal.primary]),
+    ...section("Tasks", cp.goal.tasks.map((t) => `- ${TASK_MARK[t.status]} ${t.description}`)),
+    ...section("Where things stand", cp.summary ? [cp.summary] : []),
+    ...section("Next steps", cp.nextSteps.map((s, i) => `${i + 1}. ${s}`)),
+    ...section("Decisions & gotchas", cp.decisions.map((d) => `- ${d}`)),
+    ...renderFiles(cp.modifiedFiles),
+    ...renderCommands(cp.recentCommands),
+    ...section("Since this checkpoint", renderDrift(cp, drift)),
+  ].join("\n");
+}
+
+/** A `## title` section preceded by a blank line, or nothing when it has no lines. */
+function section(title: string, lines: string[]): string[] {
+  return lines.length > 0 ? ["", `## ${title}`, ...lines] : [];
+}
+
+function renderHeader(cp: Checkpoint, warnings: readonly string[], now: Date): string[] {
   const stamp = cp.updatedAt.replace("T", " ").replace(/\.\d+Z$|Z$/, " UTC");
-  out.push(`# Resuming: ${cp.project.name} (checkpoint saved ${formatAge(cp.updatedAt, now)}, ${stamp})`);
-  if (cp.git) out.push(`Branch \`${cp.git.branch}\` @ ${cp.git.head.slice(0, 9)}${cp.git.dirty ? " (uncommitted changes)" : ""}`);
-  for (const w of warnings) out.push(`> ⚠ ${w}`);
+  const lines = [`# Resuming: ${cp.project.name} (checkpoint saved ${formatAge(cp.updatedAt, now)}, ${stamp})`];
+  if (cp.git) lines.push(`Branch \`${cp.git.branch}\` @ ${shortSha(cp.git.head)}${cp.git.dirty ? " (uncommitted changes)" : ""}`);
+  return [...lines, ...warnings.map((w) => `> ⚠ ${w}`)];
+}
 
-  out.push("", "## Goal", cp.goal.primary);
+function renderFiles(files: readonly ModifiedFile[]): string[] {
+  const lines = files.slice(0, BRIEF_MAX_FILES).map((f) => `- ${f.path} (${f.status})${f.note ? ` — ${f.note}` : ""}`);
+  const more = files.length - BRIEF_MAX_FILES;
+  if (more > 0) lines.push(`- …and ${more} more (load with format "full")`);
+  return section(`Files touched (${files.length})`, lines);
+}
 
-  if (cp.goal.tasks.length > 0) {
-    out.push("", "## Tasks");
-    for (const t of cp.goal.tasks) out.push(`- ${TASK_MARK[t.status]} ${t.description}`);
-  }
+function renderCommands(commands: readonly RecentCommand[]): string[] {
+  const shown = commands.slice(-BRIEF_MAX_COMMANDS);
+  return section(`Recent commands (last ${shown.length}, oldest first)`, shown.map(renderCommand));
+}
 
-  if (cp.summary) out.push("", "## Where things stand", cp.summary);
-
-  if (cp.nextSteps.length > 0) {
-    out.push("", "## Next steps");
-    cp.nextSteps.forEach((s, i) => out.push(`${i + 1}. ${s}`));
-  }
-
-  if (cp.decisions.length > 0) {
-    out.push("", "## Decisions & gotchas");
-    for (const d of cp.decisions) out.push(`- ${d}`);
-  }
-
-  if (cp.modifiedFiles.length > 0) {
-    out.push("", `## Files touched (${cp.modifiedFiles.length})`);
-    for (const f of cp.modifiedFiles.slice(0, BRIEF_MAX_FILES)) {
-      out.push(`- ${f.path} (${f.status})${f.note ? ` — ${f.note}` : ""}`);
-    }
-    const more = cp.modifiedFiles.length - BRIEF_MAX_FILES;
-    if (more > 0) out.push(`- …and ${more} more (load with format "full")`);
-  }
-
-  if (cp.recentCommands.length > 0) {
-    const shown = cp.recentCommands.slice(-BRIEF_MAX_COMMANDS);
-    out.push("", `## Recent commands (last ${shown.length}, oldest first)`);
-    for (const c of shown) {
-      const mark = c.exitCode === undefined ? "•" : c.exitCode === 0 ? "✓" : `✗ exit ${c.exitCode}`;
-      out.push(`- ${mark} \`${c.command}\`${c.note ? ` — ${c.note}` : ""}`);
-    }
-  }
-
-  const since = renderDrift(cp, drift);
-  if (since.length > 0) out.push("", "## Since this checkpoint", ...since);
-
-  return out.join("\n");
+function renderCommand(c: RecentCommand): string {
+  const mark = c.exitCode === undefined ? "•" : c.exitCode === 0 ? "✓" : `✗ exit ${c.exitCode}`;
+  return `- ${mark} \`${c.command}\`${c.note ? ` — ${c.note}` : ""}`;
 }
 
 export function renderDrift(cp: Checkpoint, drift: Drift | null): string[] {
@@ -86,7 +84,7 @@ export function renderDrift(cp: Checkpoint, drift: Drift | null): string[] {
 
   const lines: string[] = [];
   if (drift.branchChanged) lines.push(`- ⚠ Branch changed: \`${cp.git.branch}\` → \`${drift.currentBranch}\``);
-  if (drift.commitsSince === null) lines.push(`- ⚠ Saved commit ${cp.git.head.slice(0, 9)} is no longer reachable (rebased or reset?)`);
+  if (drift.commitsSince === null) lines.push(`- ⚠ Saved commit ${shortSha(cp.git.head)} is no longer reachable (rebased or reset?)`);
   else if (drift.commitsSince > 0) lines.push(`- ${drift.commitsSince} new commit(s) on HEAD`);
 
   if (drift.changedSince.length > 0) {

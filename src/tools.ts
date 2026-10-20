@@ -5,7 +5,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { drift as computeDrift, isIgnored, snapshot, type Drift, type GitSnapshot } from "./git.js";
 import { listCheckpoints, renderListing, type Listing } from "./listing.js";
 import { createRedactor, type Redactor } from "./redact.js";
-import { renderBrief } from "./render.js";
+import { renderBrief, shortSha } from "./render.js";
 import {
   CHECKPOINT_FILENAME,
   CHECKPOINT_VERSION,
@@ -210,7 +210,7 @@ function saveResult(file: string, bytes: number, mode: SaveArgs["mode"], checkpo
     recentCommands: checkpoint.recentCommands.length,
     redactions: checkpoint.meta.redactions,
   };
-  const at = checkpoint.git ? ` on ${checkpoint.git.branch}@${checkpoint.git.head.slice(0, 9)}` : "";
+  const at = checkpoint.git ? ` on ${checkpoint.git.branch}@${shortSha(checkpoint.git.head)}` : "";
   const text = [
     `Checkpoint saved to ${file} (${bytes} bytes, ${mode}).`,
     `${counts.tasks} task(s), ${counts.modifiedFiles} file(s), ${counts.recentCommands} command(s)${at}.`,
