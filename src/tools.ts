@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
-import { drift as computeDrift, isIgnored, snapshot, type Drift } from "./git.js";
+import { drift as computeDrift, isIgnored, snapshot, type Drift, type GitSnapshot } from "./git.js";
 import { listCheckpoints, renderListing, type Listing } from "./listing.js";
 import { createRedactor, type Redactor } from "./redact.js";
 import { renderBrief } from "./render.js";
@@ -13,10 +12,10 @@ import {
   GENERATOR,
   LIMITS,
   MAX_FILE_BYTES,
-  Task,
   type Checkpoint,
   type ModifiedFile,
   type RecentCommand,
+  type Task,
 } from "./schema.js";
 import { LEGACY_SELECTOR } from "./session.js";
 import {
@@ -31,6 +30,7 @@ import {
   writeCheckpoint,
   type LoadResult,
 } from "./store.js";
+import { DEFAULT_LIST_LIMIT, listTool, loadTool, saveTool, type ListArgs, type LoadArgs, type SaveArgs } from "./toolSchemas.js";
 
 /** The Claude Code session this server was started for; id is null when the client doesn't provide one. */
 export interface Session {
@@ -41,143 +41,6 @@ export interface Session {
 /** Upper bound on git-detected files hashed per save; beyond this, drift falls back to diff vs HEAD. */
 const MAX_HASHED_CHANGES = 500;
 const CLIENT_ROOTS_TIMEOUT_MS = 2000;
-const DEFAULT_LIST_LIMIT = 10;
-
-const projectRootArg = z
-  .string()
-  .optional()
-  .describe("Absolute path of the project. Defaults to the client's workspace root or the server's working directory.");
-
-const saveInput = {
-  goal: z.string().min(1).max(LIMITS.goal).describe("The primary objective of the session, in one or two sentences."),
-  tasks: z
-    .array(Task)
-    .max(LIMITS.tasks)
-    .optional()
-    .describe("Sub-goals with their status. In merge mode, tasks with the same description are updated."),
-  summary: z
-    .string()
-    .max(LIMITS.summary)
-    .optional()
-    .describe("Where things stand: what works, what is broken, what you were in the middle of."),
-  nextSteps: z
-    .array(z.string().max(LIMITS.item))
-    .max(LIMITS.nextSteps)
-    .optional()
-    .describe("Concrete next actions, in order, for whoever resumes."),
-  decisions: z
-    .array(z.string().max(LIMITS.item))
-    .max(LIMITS.decisions)
-    .optional()
-    .describe("Key decisions, constraints, and dead ends to avoid repeating."),
-  modifiedFiles: z
-    .array(z.object({ path: z.string().min(1).max(LIMITS.path), note: z.string().max(LIMITS.item).optional() }))
-    .max(LIMITS.modifiedFiles)
-    .optional()
-    .describe("Files you changed, with an optional note. Uncommitted git changes are detected automatically; list files here to annotate them or to include committed ones."),
-  recentCommands: z
-    .array(
-      z.object({
-        command: z.string().min(1).max(LIMITS.command),
-        exitCode: z.number().int().optional(),
-        note: z.string().max(LIMITS.item).optional(),
-      }),
-    )
-    .max(LIMITS.recentCommands)
-    .optional()
-    .describe("Recent significant terminal commands (builds, tests, migrations), oldest first, with exit codes and a short note on the outcome. Secrets are redacted automatically."),
-  mode: z
-    .enum(["replace", "merge"])
-    .default("replace")
-    .describe("replace: overwrite the checkpoint. merge: update the existing one, appending commands, decisions and files."),
-  projectRoot: projectRootArg,
-};
-
-const saveOutput = {
-  path: z.string(),
-  bytes: z.number(),
-  mode: z.enum(["replace", "merge"]),
-  counts: z.object({
-    tasks: z.number(),
-    modifiedFiles: z.number(),
-    recentCommands: z.number(),
-    redactions: z.number(),
-  }),
-  warnings: z.array(z.string()),
-};
-
-const loadInput = {
-  format: z
-    .enum(["brief", "full"])
-    .default("brief")
-    .describe("brief: compact markdown for resuming (recommended). full: the complete checkpoint JSON."),
-  checkpoint: z
-    .string()
-    .optional()
-    .describe("Which checkpoint to load, as a selector from list_session_checkpoints: a session id, or 'legacy'. Omit to load this session's own checkpoint."),
-  projectRoot: projectRootArg,
-};
-
-const listEntryOutput = z.object({
-  selector: z.string(),
-  goal: z.string().nullable(),
-  updatedAt: z.string().nullable(),
-  age: z.string().nullable(),
-  branch: z.string().nullable(),
-  allTasksDone: z.boolean(),
-  isCurrentSession: z.boolean(),
-  fromBackup: z.boolean(),
-  resumedFrom: z.string().optional(),
-  unreadable: z.string().optional(),
-});
-
-const listInput = {
-  limit: z
-    .number()
-    .int()
-    .min(0)
-    .default(DEFAULT_LIST_LIMIT)
-    .describe("Maximum number of checkpoints to return, newest first. 0 returns all of them."),
-  projectRoot: projectRootArg,
-};
-
-const listOutput = {
-  path: z.string(),
-  entries: z.array(listEntryOutput),
-  total: z.number(),
-  omitted: z.number(),
-  warnings: z.array(z.string()),
-  text: z.string(),
-};
-
-const loadOutput = {
-  found: z.boolean(),
-  path: z.string(),
-  selector: z.string().optional(),
-  candidates: z.array(listEntryOutput).optional(),
-  total: z.number().optional(),
-  omitted: z.number().optional(),
-  fromBackup: z.boolean().optional(),
-  updatedAt: z.string().optional(),
-  drift: z
-    .object({
-      branchChanged: z.boolean(),
-      currentBranch: z.string(),
-      commitsSince: z.number().nullable(),
-      changedSince: z.array(z.string()),
-    })
-    .nullable()
-    .optional(),
-  warnings: z.array(z.string()),
-  brief: z.string().optional(),
-  text: z.string().optional(),
-  checkpoint: z.record(z.unknown()).optional(),
-};
-
-type SaveArgs = z.infer<z.ZodObject<typeof saveInput>>;
-type LoadArgs = z.infer<z.ZodObject<typeof loadInput>>;
-type ListArgs = z.infer<z.ZodObject<typeof listInput>>;
-
 const CHECKPOINT_FILES = new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
 const isCheckpointFile = (p: string) =>
   CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`) || p.startsWith(`${SLOTS_DIRNAME}/`);
@@ -202,53 +65,9 @@ export function registerTools(server: McpServer, session: Session): void {
     return roots.map((r) => rootUriToPath(r.uri)).find((p) => p !== undefined);
   };
 
-  server.registerTool(
-    "save_session_checkpoint",
-    {
-      title: "Save session checkpoint",
-      description:
-        "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project " +
-        "(.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), " +
-        "so a new session can resume after a crash, /clear, or context limit without re-exploring. " +
-        "Call after finishing a milestone, before risky operations, and when the conversation is getting long. " +
-        "Git branch, HEAD and uncommitted files are captured automatically.",
-      inputSchema: saveInput,
-      outputSchema: saveOutput,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    },
-    (args) => serialized(() => save(args, session, adopted, clientRoot)),
-  );
-
-  server.registerTool(
-    "load_session_checkpoint",
-    {
-      title: "Load session checkpoint",
-      description:
-        "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, " +
-        "touched files and recent commands, plus which files changed since it was saved. Call at the start of a session " +
-        "or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns " +
-        "a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
-      inputSchema: loadInput,
-      outputSchema: loadOutput,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    (args) => serialized(() => load(args, session, adopted, clientRoot)),
-  );
-
-  server.registerTool(
-    "list_session_checkpoints",
-    {
-      title: "List session checkpoints",
-      description:
-        "List the checkpoints saved in the project (one per Claude Code session, plus a legacy .claude-checkpoint if present), " +
-        "newest first, with each one's goal, last-saved time, branch and whether all its tasks are done. " +
-        "Use it when the user wants to resume a different or older session; load one with load_session_checkpoint's `checkpoint`.",
-      inputSchema: listInput,
-      outputSchema: listOutput,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    (args) => serialized(() => list(args, session, clientRoot)),
-  );
+  server.registerTool("save_session_checkpoint", saveTool, (args) => serialized(() => save(args, session, adopted, clientRoot)));
+  server.registerTool("load_session_checkpoint", loadTool, (args) => serialized(() => load(args, session, adopted, clientRoot)));
+  server.registerTool("list_session_checkpoints", listTool, (args) => serialized(() => list(args, session, clientRoot)));
 }
 
 /** Turns expected failures into tool errors the model can read and act on. */
@@ -268,79 +87,139 @@ async function save(
   clientRoot: () => Promise<string | undefined>,
 ): Promise<CallToolResult> {
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const now = new Date().toISOString();
-  const redactor = createRedactor();
   const warnings: string[] = session.warning ? [session.warning] : [];
-
-  const { file, previous, resumedFrom, continuing } = await saveBase(root, session, adopted.get(root), args.mode, warnings);
-  const base = previous?.checkpoint;
-
+  const target = await saveBase(root, session, adopted.get(root), args.mode, warnings);
   const git = await snapshot(root, MAX_HASHED_CHANGES);
-  const tasks = mergeTasks(base?.goal.tasks ?? [], (args.tasks ?? []).map((t) => ({ ...t, description: redactor.scrub(t.description) })));
-  const newCommands: RecentCommand[] = (args.recentCommands ?? []).map((c) => ({
-    command: redactor.scrub(c.command),
-    exitCode: c.exitCode,
-    note: c.note === undefined ? undefined : redactor.scrub(c.note),
-    at: now,
-  }));
 
-  let droppedOldest = false;
+  const checkpoint = buildCheckpoint({ args, root, session, target, git, redactor: createRedactor(), warnings });
+  const bytes = await writeCheckpoint(target.file, checkpoint);
+  await warnIfNotIgnored(root, target.file, session, warnings);
+  return saveResult(target.file, bytes, args.mode, checkpoint, warnings);
+}
+
+interface CheckpointInput {
+  args: SaveArgs;
+  root: string;
+  session: Session;
+  target: SaveBase;
+  git: GitSnapshot | null;
+  redactor: Redactor;
+  warnings: string[];
+}
+
+/** The checkpoint a save writes: the agent's input, redacted and merged onto the base, within the size limits. */
+function buildCheckpoint(input: CheckpointInput): Checkpoint {
+  const { args, root, session, target, git, redactor, warnings } = input;
+  const now = new Date().toISOString();
+  const base = target.previous?.checkpoint;
+  const content = mergeContent(input, base, now);
+  const files = recordFiles(input, base);
+
+  const checkpoint: Checkpoint = {
+    ...identity(target, root, session, now),
+    git: git?.state ?? null,
+    goal: { primary: redactor.scrub(args.goal), tasks: content.tasks },
+    summary: content.summary,
+    nextSteps: content.nextSteps,
+    decisions: content.decisions,
+    modifiedFiles: files.modifiedFiles,
+    recentCommands: content.recentCommands,
+    meta: { redactions: redactor.count, truncated: content.truncated || files.truncated },
+  };
+  if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
+  if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
+  return checkpoint;
+}
+
+/** Version, ids and timestamps. Continuing the session's own checkpoint keeps its id and createdAt. */
+function identity(
+  target: SaveBase,
+  root: string,
+  session: Session,
+  now: string,
+): Pick<Checkpoint, "version" | "id" | "createdAt" | "updatedAt" | "generator" | "project" | "sessionId" | "resumedFrom"> {
+  const own = target.continuing ? target.previous?.checkpoint : undefined;
+  return {
+    version: CHECKPOINT_VERSION,
+    id: own?.id ?? randomUUID(),
+    createdAt: own?.createdAt ?? now,
+    updatedAt: now,
+    generator: { ...GENERATOR },
+    project: { name: path.basename(root) },
+    ...(session.id !== null ? { sessionId: session.id } : {}),
+    ...(target.resumedFrom !== undefined ? { resumedFrom: target.resumedFrom } : {}),
+  };
+}
+
+/**
+ * Text and lists from the agent, merged onto the base: summary and next steps replace the base's
+ * when given; tasks, decisions and commands accumulate, keeping the newest within their limits.
+ */
+function mergeContent({ args, redactor, warnings }: CheckpointInput, base: Checkpoint | undefined, now: string) {
+  let truncated = false;
   const keepLast = <T>(items: T[], max: number, label: string): T[] => {
     if (items.length > max) {
-      droppedOldest = true;
+      truncated = true;
       warnings.push(`Dropped the ${items.length - max} oldest ${label} to stay within the limit of ${max}.`);
     }
     return items.slice(-max);
   };
 
-  const checkpoint: Checkpoint = {
-    version: CHECKPOINT_VERSION,
-    id: continuing ? base!.id : randomUUID(),
-    createdAt: continuing ? base!.createdAt : now,
-    updatedAt: now,
-    generator: { ...GENERATOR },
-    project: { name: path.basename(root) },
-    ...(session.id !== null ? { sessionId: session.id } : {}),
-    ...(resumedFrom !== undefined ? { resumedFrom } : {}),
-    git: git?.state ?? null,
-    goal: { primary: redactor.scrub(args.goal), tasks: keepLast(tasks, LIMITS.tasks, "tasks") },
+  const tasks = mergeTasks(base?.goal.tasks ?? [], (args.tasks ?? []).map((t) => ({ ...t, description: redactor.scrub(t.description) })));
+  const decisions = dedupe([...(base?.decisions ?? []), ...(args.decisions ?? []).map(redactor.scrub)]);
+  const commands = [...(base?.recentCommands ?? []), ...(args.recentCommands ?? []).map((c) => scrubCommand(c, redactor, now))];
+  return {
     summary: args.summary !== undefined ? redactor.scrub(args.summary) : (base?.summary ?? ""),
     nextSteps: args.nextSteps !== undefined ? args.nextSteps.map(redactor.scrub) : (base?.nextSteps ?? []),
-    decisions: keepLast(dedupe([...(base?.decisions ?? []), ...(args.decisions ?? []).map(redactor.scrub)]), LIMITS.decisions, "decisions"),
-    modifiedFiles: [],
-    recentCommands: keepLast([...(base?.recentCommands ?? []), ...newCommands], LIMITS.recentCommands, "recent commands"),
-    meta: { redactions: 0, truncated: false },
+    tasks: keepLast(tasks, LIMITS.tasks, "tasks"),
+    decisions: keepLast(decisions, LIMITS.decisions, "decisions"),
+    recentCommands: keepLast(commands, LIMITS.recentCommands, "recent commands"),
+    truncated,
   };
+}
 
+function scrubCommand(c: NonNullable<SaveArgs["recentCommands"]>[number], redactor: Redactor, now: string): RecentCommand {
+  return {
+    command: redactor.scrub(c.command),
+    exitCode: c.exitCode,
+    note: c.note === undefined ? undefined : redactor.scrub(c.note),
+    at: now,
+  };
+}
+
+function recordFiles(
+  { root, git, args, redactor, warnings }: CheckpointInput,
+  base: Checkpoint | undefined,
+): { modifiedFiles: ModifiedFile[]; truncated: boolean } {
   const files = buildFileList(root, git?.changes ?? [], args.modifiedFiles ?? [], base?.modifiedFiles ?? [], redactor);
-  checkpoint.modifiedFiles = files.slice(0, LIMITS.modifiedFiles);
-  const tooManyFiles = files.length > LIMITS.modifiedFiles;
-  if (tooManyFiles) warnings.push(`Only the first ${LIMITS.modifiedFiles} of ${files.length} modified files were recorded.`);
+  const truncated = files.length > LIMITS.modifiedFiles;
+  if (truncated) warnings.push(`Only the first ${LIMITS.modifiedFiles} of ${files.length} modified files were recorded.`);
+  return { modifiedFiles: files.slice(0, LIMITS.modifiedFiles), truncated };
+}
 
-  checkpoint.meta = { redactions: redactor.count, truncated: tooManyFiles || droppedOldest };
-  if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
-  if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
-
-  const bytes = await writeCheckpoint(file, checkpoint);
+async function warnIfNotIgnored(root: string, file: string, session: Session, warnings: string[]): Promise<void> {
+  if ((await isIgnored(root, path.relative(root, file).split(path.sep).join("/"))) !== false) return;
   const shown = session.id !== null ? `${SLOTS_DIRNAME}/` : CHECKPOINT_FILENAME;
-  if ((await isIgnored(root, path.relative(root, file).split(path.sep).join("/"))) === false) {
-    warnings.push(`${shown} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
-  }
+  warnings.push(`${shown} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
+}
+
+function saveResult(file: string, bytes: number, mode: SaveArgs["mode"], checkpoint: Checkpoint, warnings: string[]): CallToolResult {
   const counts = {
     tasks: checkpoint.goal.tasks.length,
     modifiedFiles: checkpoint.modifiedFiles.length,
     recentCommands: checkpoint.recentCommands.length,
-    redactions: redactor.count,
+    redactions: checkpoint.meta.redactions,
   };
+  const at = checkpoint.git ? ` on ${checkpoint.git.branch}@${checkpoint.git.head.slice(0, 9)}` : "";
   const text = [
-    `Checkpoint saved to ${file} (${bytes} bytes, ${args.mode}).`,
-    `${counts.tasks} task(s), ${counts.modifiedFiles} file(s), ${counts.recentCommands} command(s)${git ? ` on ${git.state.branch}@${git.state.head.slice(0, 9)}` : ""}.`,
+    `Checkpoint saved to ${file} (${bytes} bytes, ${mode}).`,
+    `${counts.tasks} task(s), ${counts.modifiedFiles} file(s), ${counts.recentCommands} command(s)${at}.`,
     ...warnings.map((w) => `⚠ ${w}`),
   ].join("\n");
 
   return {
     content: [{ type: "text", text }],
-    structuredContent: { path: file, bytes, mode: args.mode, counts, warnings },
+    structuredContent: { path: file, bytes, mode, counts, warnings },
   };
 }
 
