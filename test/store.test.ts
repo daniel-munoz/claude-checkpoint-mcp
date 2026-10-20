@@ -48,6 +48,12 @@ describe("write/read", () => {
     expect(await readCheckpoint(dir)).toEqual({ checkpoint: cp, fromBackup: false, warnings: [] });
   });
 
+  it("round-trips the session fields", async () => {
+    const dir = tempDir();
+    await writeCheckpoint(dir, makeCheckpoint({ sessionId: "s1", resumedFrom: "legacy" }));
+    expect((await readCheckpoint(dir))?.checkpoint).toMatchObject({ sessionId: "s1", resumedFrom: "legacy" });
+  });
+
   it("returns null when nothing has been saved", async () => {
     expect(await readCheckpoint(tempDir())).toBeNull();
   });

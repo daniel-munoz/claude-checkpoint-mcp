@@ -57,6 +57,9 @@ export const Checkpoint = z.object({
   updatedAt: z.string().datetime(),
   generator: z.object({ name: z.string(), version: z.string() }),
   project: z.object({ name: z.string() }),
+  // The Claude Code session that owns this checkpoint, and the selector it was resumed from.
+  sessionId: z.string().max(128).optional(),
+  resumedFrom: z.string().max(128).optional(),
   git: GitState.nullable(),
   goal: z.object({
     primary: z.string().min(1).max(LIMITS.goal),
