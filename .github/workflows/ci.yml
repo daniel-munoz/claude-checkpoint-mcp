@@ -1,0 +1,44 @@
+# Typechecks, tests and builds the server, and checks that the committed plugin
+# bundle (plugin/dist) matches the source, since plugin installs run it as-is.
+
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [ 20, 24 ]
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: npm
+
+    - name: Install
+      run: npm ci
+
+    - name: Typecheck
+      run: npm run typecheck
+
+    - name: Test
+      run: npm test
+
+    - name: Build
+      run: npm run build
+
+    - name: Check plugin bundle is up to date
+      run: git diff --exit-code -- plugin/dist || (echo "::error::plugin/dist is stale; run npm run build and commit it" && exit 1)

@@ -1,0 +1,40 @@
+# Runs Code Review Assistant on the files a pull request changes and uploads
+# the findings to GitHub code scanning, which shows them as inline PR
+# annotations. See https://github.com/daniel-munoz/code-review-assistant
+
+name: CRA
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        # --branch needs history back to the merge-base with the base branch
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: stable
+
+    - name: Install CRA
+      run: go install github.com/daniel-munoz/code-review-assistant@v1.5.0
+
+    - name: Analyze changed files
+      run: code-review-assistant analyze . --branch=origin/${{ github.base_ref }} --format sarif -o cra.sarif --quiet
+
+    - name: Upload SARIF
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: cra.sarif
+        category: cra
