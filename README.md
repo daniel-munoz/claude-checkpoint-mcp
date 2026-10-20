@@ -100,7 +100,7 @@ The biggest saving comes from **drift detection**. At save time, the server reco
 Requirements: **Node.js 20+** and **git**. Git is optional, but without it you lose drift detection.
 
 ```sh
-git clone https://github.com/tenlean/claude-checkpoint-mcp.git
+git clone https://github.com/daniel-munoz/claude-checkpoint-mcp.git
 cd claude-checkpoint-mcp
 npm install
 npm run build
@@ -117,8 +117,8 @@ The server entry point is now at `dist/index.js`.
 **As a plugin (easiest).** This repo is also a Claude Code plugin marketplace. You don't need to clone or build anything:
 
 ```sh
-claude plugin marketplace add tenlean/claude-checkpoint-mcp
-claude plugin install claude-checkpoint-mcp@tenlean
+claude plugin marketplace add daniel-munoz/claude-checkpoint-mcp
+claude plugin install claude-checkpoint-mcp@daniel-munoz
 ```
 
 Restart Claude Code, then `/mcp` should show `plugin:claude-checkpoint-mcp:claude-checkpoint` as connected.

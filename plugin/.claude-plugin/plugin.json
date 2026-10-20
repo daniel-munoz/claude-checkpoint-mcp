@@ -2,12 +2,12 @@
   "name": "claude-checkpoint-mcp",
   "displayName": "Claude Checkpoint MCP",
   "description": "Local MCP server to save session state, surviving crashes and context limits.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Tenzin"
   },
-  "homepage": "https://github.com/tenlean/claude-checkpoint-mcp",
-  "repository": "https://github.com/tenlean/claude-checkpoint-mcp",
+  "homepage": "https://github.com/daniel-munoz/claude-checkpoint-mcp",
+  "repository": "https://github.com/daniel-munoz/claude-checkpoint-mcp",
   "license": "MIT",
   "keywords": [
     "checkpoint",
@@ -17,9 +17,9 @@
     "crash-recovery",
     "mcp"
   ],
-  "documentationUrl": "https://github.com/tenlean/claude-checkpoint-mcp#readme",
-  "supportUrl": "https://github.com/tenlean/claude-checkpoint-mcp/issues",
-  "privacyPolicyUrl": "https://github.com/tenlean/claude-checkpoint-mcp#security--privacy",
+  "documentationUrl": "https://github.com/daniel-munoz/claude-checkpoint-mcp#readme",
+  "supportUrl": "https://github.com/daniel-munoz/claude-checkpoint-mcp/issues",
+  "privacyPolicyUrl": "https://github.com/daniel-munoz/claude-checkpoint-mcp#security--privacy",
   "mcpServers": {
     "claude-checkpoint": {
       "type": "stdio",
