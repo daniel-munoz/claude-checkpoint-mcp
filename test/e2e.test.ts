@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -276,5 +276,107 @@ describe("per-session load", () => {
     const some = await callAs(c, "list_session_checkpoints", { projectRoot: dir });
     expect(some.data).toMatchObject({ total: 12, omitted: 2 });
     expect(some.data.text).toBe(some.text);
+  });
+});
+
+const readJson = (file: string) => JSON.parse(readFileSync(file, "utf8"));
+
+describe("per-session save", () => {
+  it("saves to the session's own slot and never creates the legacy file", async () => {
+    const dir = tempDir();
+    const { data } = await callAs(await connect("s1"), "save_session_checkpoint", { projectRoot: dir, goal: "mine" });
+    expect(data.path).toBe(selectorPath(dir, "s1"));
+    expect(readJson(selectorPath(dir, "s1"))).toMatchObject({ sessionId: "s1", goal: { primary: "mine" } });
+    expect(existsSync(path.join(dir, ".claude-checkpoint"))).toBe(false);
+  });
+
+  it("leaves an existing legacy checkpoint untouched", async () => {
+    const dir = tempDir();
+    seed(dir, "legacy", "legacy work");
+    const before = readFileSync(path.join(dir, ".claude-checkpoint"), "utf8");
+    await callAs(await connect("s1"), "save_session_checkpoint", { projectRoot: dir, goal: "mine" });
+    expect(readFileSync(path.join(dir, ".claude-checkpoint"), "utf8")).toBe(before);
+  });
+
+  it("merges from an adopted checkpoint into the session's own slot", async () => {
+    const dir = tempDir();
+    const s1 = await connect("s1");
+    await callAs(s1, "save_session_checkpoint", {
+      projectRoot: dir,
+      goal: "shared goal",
+      tasks: [{ description: "t1", status: "in_progress" }],
+      nextSteps: ["next"],
+    });
+    const original = readFileSync(selectorPath(dir, "s1"), "utf8");
+
+    const s2 = await connect("s2");
+    await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
+    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "shared goal", mode: "merge" });
+
+    const mine = readJson(selectorPath(dir, "s2"));
+    expect(mine.goal.tasks).toEqual([{ description: "t1", status: "in_progress" }]);
+    expect(mine.nextSteps).toEqual(["next"]);
+    expect(mine).toMatchObject({ sessionId: "s2", resumedFrom: "s1" });
+    expect(mine.id).not.toBe(JSON.parse(original).id);
+    expect(readFileSync(selectorPath(dir, "s1"), "utf8")).toBe(original);
+  });
+
+  it("records resumedFrom on a replace save after adopting, and keeps it on later saves", async () => {
+    const dir = tempDir();
+    seed(dir, "s1", "older work");
+    const s2 = await connect("s2");
+    await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
+    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "new task" });
+    expect(readJson(selectorPath(dir, "s2")).resumedFrom).toBe("s1");
+    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "new task again" });
+    expect(readJson(selectorPath(dir, "s2")).resumedFrom).toBe("s1");
+  });
+
+  it("without a session id, merges into the legacy checkpoint rather than an adopted one", async () => {
+    const dir = tempDir();
+    await call("save_session_checkpoint", { projectRoot: dir, goal: "legacy goal", tasks: [{ description: "legacy task", status: "pending" }] });
+    const s1 = await connect("s1");
+    await callAs(s1, "save_session_checkpoint", { projectRoot: dir, goal: "slot goal", tasks: [{ description: "slot task", status: "pending" }] });
+
+    await call("load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
+    await call("save_session_checkpoint", { projectRoot: dir, goal: "legacy goal", mode: "merge" });
+    const legacy = readJson(path.join(dir, ".claude-checkpoint"));
+    expect(legacy.goal.tasks.map((t: { description: string }) => t.description)).toEqual(["legacy task"]);
+    expect(legacy.resumedFrom).toBeUndefined();
+  });
+
+  it("keeps two sessions saving in parallel in one folder from affecting each other", async () => {
+    const dir = gitRepo();
+    const [s1, s2] = [await connect("s1"), await connect("s2")];
+    await Promise.all(
+      [s1, s2].flatMap((c, n) =>
+        Array.from({ length: 5 }, (_, i) =>
+          callAs(c, "save_session_checkpoint", { projectRoot: dir, goal: `g${n}`, mode: "merge", recentCommands: [{ command: `cmd ${i}` }] }),
+        ),
+      ),
+    );
+    for (const id of ["s1", "s2"]) {
+      expect(readJson(selectorPath(dir, id)).recentCommands).toHaveLength(5);
+    }
+    expect(existsSync(path.join(dir, ".claude-checkpoint"))).toBe(false);
+  });
+
+  it("keeps slot files out of the file list and drift", async () => {
+    const dir = gitRepo();
+    writeFileSync(path.join(dir, "a.ts"), "a\n");
+    git(dir, "add", ".");
+    git(dir, "commit", "-qm", "init");
+    const s1 = await connect("s1");
+    await callAs(s1, "save_session_checkpoint", { projectRoot: dir, goal: "g" });
+    await callAs(s1, "save_session_checkpoint", { projectRoot: dir, goal: "g" });
+    expect(readJson(selectorPath(dir, "s1")).modifiedFiles).toEqual([]);
+    const { data } = await callAs(s1, "load_session_checkpoint", { projectRoot: dir });
+    expect(data.drift.changedSince).toEqual([]);
+  });
+
+  it("warns when the slots directory is not git-ignored", async () => {
+    const dir = gitRepo();
+    const { data } = await callAs(await connect("s1"), "save_session_checkpoint", { projectRoot: dir, goal: "g" });
+    expect(data.warnings.some((w: string) => w.includes(".claude-checkpoints") && w.includes("not git-ignored"))).toBe(true);
   });
 });

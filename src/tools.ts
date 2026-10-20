@@ -22,12 +22,12 @@ import { LEGACY_SELECTOR } from "./session.js";
 import {
   BACKUP_SUFFIX,
   CheckpointError,
-  checkpointPath,
   fitToSize,
   readCheckpoint,
   resolveRoot,
   rootUriToPath,
   selectorPath,
+  SLOTS_DIRNAME,
   writeCheckpoint,
   type LoadResult,
 } from "./store.js";
@@ -179,7 +179,8 @@ type LoadArgs = z.infer<z.ZodObject<typeof loadInput>>;
 type ListArgs = z.infer<z.ZodObject<typeof listInput>>;
 
 const CHECKPOINT_FILES = new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
-const isCheckpointFile = (p: string) => CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`);
+const isCheckpointFile = (p: string) =>
+  CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`) || p.startsWith(`${SLOTS_DIRNAME}/`);
 
 export function registerTools(server: McpServer, session: Session): void {
   // Per project root: the checkpoint this session chose to resume from (by explicit selector),
@@ -214,7 +215,7 @@ export function registerTools(server: McpServer, session: Session): void {
       outputSchema: saveOutput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    (args) => serialized(() => save(args, clientRoot)),
+    (args) => serialized(() => save(args, session, adopted, clientRoot)),
   );
 
   server.registerTool(
@@ -259,16 +260,33 @@ async function guard(fn: () => Promise<CallToolResult>): Promise<CallToolResult>
   }
 }
 
-async function save(args: SaveArgs, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
+async function save(
+  args: SaveArgs,
+  session: Session,
+  adopted: Map<string, string>,
+  clientRoot: () => Promise<string | undefined>,
+): Promise<CallToolResult> {
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const now = new Date().toISOString();
   const redactor = createRedactor();
-  const warnings: string[] = [];
+  const warnings: string[] = session.warning ? [session.warning] : [];
 
-  const previous = args.mode === "merge" ? await readCheckpoint(checkpointPath(root)).catch(() => null) : null;
-  if (args.mode === "merge" && previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
+  // Sessions only ever write their own checkpoint (the legacy file when there's no session id).
+  // Until it exists, a checkpoint the session resumed from is the merge base and is recorded as resumedFrom.
+  const file = selectorPath(root, session.id ?? LEGACY_SELECTOR);
+  const own = await readCheckpoint(file).catch(() => null);
+  const adoptedSelector = own === null ? adopted.get(root) : undefined;
+  const resumedFrom = own?.checkpoint.resumedFrom ?? adoptedSelector;
+
+  let previous: LoadResult | null = null;
+  if (args.mode === "merge") {
+    previous = own ?? (adoptedSelector === undefined ? null : await readCheckpoint(selectorPath(root, adoptedSelector)).catch(() => null));
+    if (previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
+  }
   if (previous) warnings.push(...previous.warnings);
   const base = previous?.checkpoint;
+  // A checkpoint started from another one is a new checkpoint, not a continuation of that file.
+  const continuing = previous !== null && previous === own;
 
   const git = await snapshot(root, MAX_HASHED_CHANGES);
   const tasks = mergeTasks(base?.goal.tasks ?? [], (args.tasks ?? []).map((t) => ({ ...t, description: redactor.scrub(t.description) })));
@@ -287,11 +305,13 @@ async function save(args: SaveArgs, clientRoot: () => Promise<string | undefined
 
   const checkpoint: Checkpoint = {
     version: CHECKPOINT_VERSION,
-    id: base?.id ?? randomUUID(),
-    createdAt: base?.createdAt ?? now,
+    id: continuing ? base!.id : randomUUID(),
+    createdAt: continuing ? base!.createdAt : now,
     updatedAt: now,
     generator: { ...GENERATOR },
     project: { name: path.basename(root) },
+    ...(session.id !== null ? { sessionId: session.id } : {}),
+    ...(resumedFrom !== undefined ? { resumedFrom } : {}),
     git: git?.state ?? null,
     goal: { primary: redactor.scrub(args.goal), tasks: keepLast(tasks, LIMITS.tasks) },
     summary: args.summary !== undefined ? redactor.scrub(args.summary) : (base?.summary ?? ""),
@@ -312,12 +332,11 @@ async function save(args: SaveArgs, clientRoot: () => Promise<string | undefined
   if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
 
-  const bytes = await writeCheckpoint(checkpointPath(root), checkpoint);
-  if ((await isIgnored(root, CHECKPOINT_FILENAME)) === false) {
-    warnings.push(`${CHECKPOINT_FILENAME} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
+  const bytes = await writeCheckpoint(file, checkpoint);
+  const shown = session.id !== null ? `${SLOTS_DIRNAME}/` : CHECKPOINT_FILENAME;
+  if ((await isIgnored(root, path.relative(root, file).split(path.sep).join("/"))) === false) {
+    warnings.push(`${shown} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
   }
-
-  const file = checkpointPath(root);
   const counts = {
     tasks: checkpoint.goal.tasks.length,
     modifiedFiles: checkpoint.modifiedFiles.length,
