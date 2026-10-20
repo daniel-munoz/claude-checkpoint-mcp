@@ -21698,31 +21698,29 @@ async function drift(root, saved, savedHashes, ignore = () => false) {
     git(root, ["rev-list", "--count", `${saved.head}..HEAD`]),
     git(root, ["diff", "--name-only", "-z", saved.head, "--"])
   ]);
-  const candidates2 = new Set(savedHashes.keys());
-  for (const c of now.changes) candidates2.add(c.path);
-  if (diff !== null) {
-    for (const p of diff.split("\0")) if (p) candidates2.add(p);
-  }
-  for (const p of candidates2) if (ignore(p)) candidates2.delete(p);
   const differsFromHead = diff === null ? null : new Set(diff.split("\0").filter(Boolean));
-  const untrackedNow = new Set(now.changes.filter((c) => c.status === "??").map((c) => c.path));
-  const current = await hashFiles(root, [...candidates2]);
-  const changedSince = [];
-  for (const path4 of candidates2) {
-    const was = savedHashes.get(path4);
-    const is = current.get(path4) ?? DELETED;
-    if (was !== void 0) {
-      if (was !== is) changedSince.push(path4);
-    } else if (differsFromHead === null || differsFromHead.has(path4) || untrackedNow.has(path4)) {
-      changedSince.push(path4);
-    }
-  }
+  const candidates2 = driftCandidates(savedHashes, now.changes, differsFromHead, ignore);
+  const evidence = {
+    savedHashes,
+    current: await hashFiles(root, candidates2),
+    differsFromHead,
+    untrackedNow: new Set(now.changes.filter((c) => c.status === "??").map((c) => c.path))
+  };
   return {
     branchChanged: now.state.branch !== saved.branch,
     currentBranch: now.state.branch,
     commitsSince: count === null ? null : Number.parseInt(count.trim(), 10),
-    changedSince: changedSince.sort()
+    changedSince: candidates2.filter((p) => changedAfterSave(p, evidence)).sort()
   };
+}
+function driftCandidates(savedHashes, changes, differsFromHead, ignore) {
+  const all = /* @__PURE__ */ new Set([...savedHashes.keys(), ...changes.map((c) => c.path), ...differsFromHead ?? []]);
+  return [...all].filter((p) => !ignore(p));
+}
+function changedAfterSave(path4, { savedHashes, current, differsFromHead, untrackedNow }) {
+  const was = savedHashes.get(path4);
+  if (was !== void 0) return was !== (current.get(path4) ?? DELETED);
+  return differsFromHead === null || differsFromHead.has(path4) || untrackedNow.has(path4);
 }
 
 // src/listing.ts
@@ -21732,12 +21730,16 @@ import path2 from "node:path";
 // src/render.ts
 var BRIEF_MAX_FILES = 40;
 var BRIEF_MAX_COMMANDS = 10;
+var SHORT_SHA_LENGTH = 9;
 var TASK_MARK = {
   done: "[x]",
   in_progress: "[~]",
   pending: "[ ]",
   blocked: "[!]"
 };
+function shortSha(sha) {
+  return sha.slice(0, SHORT_SHA_LENGTH);
+}
 function formatAge(fromIso, now = /* @__PURE__ */ new Date()) {
   const secs = Math.max(0, Math.round((now.getTime() - Date.parse(fromIso)) / 1e3));
   if (secs < 60) return "just now";
@@ -21748,51 +21750,47 @@ function formatAge(fromIso, now = /* @__PURE__ */ new Date()) {
   return `${Math.round(hours / 24)}d ago`;
 }
 function renderBrief(cp, drift2, warnings, now = /* @__PURE__ */ new Date()) {
-  const out = [];
+  return [
+    ...renderHeader(cp, warnings, now),
+    ...section("Goal", [cp.goal.primary]),
+    ...section("Tasks", cp.goal.tasks.map((t) => `- ${TASK_MARK[t.status]} ${t.description}`)),
+    ...section("Where things stand", cp.summary ? [cp.summary] : []),
+    ...section("Next steps", cp.nextSteps.map((s, i) => `${i + 1}. ${s}`)),
+    ...section("Decisions & gotchas", cp.decisions.map((d) => `- ${d}`)),
+    ...renderFiles(cp.modifiedFiles),
+    ...renderCommands(cp.recentCommands),
+    ...section("Since this checkpoint", renderDrift(cp, drift2))
+  ].join("\n");
+}
+function section(title, lines) {
+  return lines.length > 0 ? ["", `## ${title}`, ...lines] : [];
+}
+function renderHeader(cp, warnings, now) {
   const stamp = cp.updatedAt.replace("T", " ").replace(/\.\d+Z$|Z$/, " UTC");
-  out.push(`# Resuming: ${cp.project.name} (checkpoint saved ${formatAge(cp.updatedAt, now)}, ${stamp})`);
-  if (cp.git) out.push(`Branch \`${cp.git.branch}\` @ ${cp.git.head.slice(0, 9)}${cp.git.dirty ? " (uncommitted changes)" : ""}`);
-  for (const w of warnings) out.push(`> \u26A0 ${w}`);
-  out.push("", "## Goal", cp.goal.primary);
-  if (cp.goal.tasks.length > 0) {
-    out.push("", "## Tasks");
-    for (const t of cp.goal.tasks) out.push(`- ${TASK_MARK[t.status]} ${t.description}`);
-  }
-  if (cp.summary) out.push("", "## Where things stand", cp.summary);
-  if (cp.nextSteps.length > 0) {
-    out.push("", "## Next steps");
-    cp.nextSteps.forEach((s, i) => out.push(`${i + 1}. ${s}`));
-  }
-  if (cp.decisions.length > 0) {
-    out.push("", "## Decisions & gotchas");
-    for (const d of cp.decisions) out.push(`- ${d}`);
-  }
-  if (cp.modifiedFiles.length > 0) {
-    out.push("", `## Files touched (${cp.modifiedFiles.length})`);
-    for (const f of cp.modifiedFiles.slice(0, BRIEF_MAX_FILES)) {
-      out.push(`- ${f.path} (${f.status})${f.note ? ` \u2014 ${f.note}` : ""}`);
-    }
-    const more = cp.modifiedFiles.length - BRIEF_MAX_FILES;
-    if (more > 0) out.push(`- \u2026and ${more} more (load with format "full")`);
-  }
-  if (cp.recentCommands.length > 0) {
-    const shown = cp.recentCommands.slice(-BRIEF_MAX_COMMANDS);
-    out.push("", `## Recent commands (last ${shown.length}, oldest first)`);
-    for (const c of shown) {
-      const mark = c.exitCode === void 0 ? "\u2022" : c.exitCode === 0 ? "\u2713" : `\u2717 exit ${c.exitCode}`;
-      out.push(`- ${mark} \`${c.command}\`${c.note ? ` \u2014 ${c.note}` : ""}`);
-    }
-  }
-  const since = renderDrift(cp, drift2);
-  if (since.length > 0) out.push("", "## Since this checkpoint", ...since);
-  return out.join("\n");
+  const lines = [`# Resuming: ${cp.project.name} (checkpoint saved ${formatAge(cp.updatedAt, now)}, ${stamp})`];
+  if (cp.git) lines.push(`Branch \`${cp.git.branch}\` @ ${shortSha(cp.git.head)}${cp.git.dirty ? " (uncommitted changes)" : ""}`);
+  return [...lines, ...warnings.map((w) => `> \u26A0 ${w}`)];
+}
+function renderFiles(files) {
+  const lines = files.slice(0, BRIEF_MAX_FILES).map((f) => `- ${f.path} (${f.status})${f.note ? ` \u2014 ${f.note}` : ""}`);
+  const more = files.length - BRIEF_MAX_FILES;
+  if (more > 0) lines.push(`- \u2026and ${more} more (load with format "full")`);
+  return section(`Files touched (${files.length})`, lines);
+}
+function renderCommands(commands) {
+  const shown = commands.slice(-BRIEF_MAX_COMMANDS);
+  return section(`Recent commands (last ${shown.length}, oldest first)`, shown.map(renderCommand));
+}
+function renderCommand(c) {
+  const mark = c.exitCode === void 0 ? "\u2022" : c.exitCode === 0 ? "\u2713" : `\u2717 exit ${c.exitCode}`;
+  return `- ${mark} \`${c.command}\`${c.note ? ` \u2014 ${c.note}` : ""}`;
 }
 function renderDrift(cp, drift2) {
   if (!cp.git) return [];
   if (!drift2) return ["- Project is no longer a git repository; cannot check for changes."];
   const lines = [];
   if (drift2.branchChanged) lines.push(`- \u26A0 Branch changed: \`${cp.git.branch}\` \u2192 \`${drift2.currentBranch}\``);
-  if (drift2.commitsSince === null) lines.push(`- \u26A0 Saved commit ${cp.git.head.slice(0, 9)} is no longer reachable (rebased or reset?)`);
+  if (drift2.commitsSince === null) lines.push(`- \u26A0 Saved commit ${shortSha(cp.git.head)} is no longer reachable (rebased or reset?)`);
   else if (drift2.commitsSince > 0) lines.push(`- ${drift2.commitsSince} new commit(s) on HEAD`);
   if (drift2.changedSince.length > 0) {
     const shown = drift2.changedSince.slice(0, BRIEF_MAX_FILES).map((p) => `\`${p}\``);
@@ -21954,12 +21952,17 @@ async function writeCheckpoint(target, checkpoint) {
 // src/listing.ts
 var SLOT_EXT = ".json";
 var SLOT_BACKUP_EXT = SLOT_EXT + BACKUP_SUFFIX;
-async function slotSelectors(root) {
+async function slotSelectors(root, warnings) {
   let names;
   try {
     names = await readdir(path2.join(root, SLOTS_DIRNAME));
   } catch (err) {
-    if (err.code === "ENOENT") return [];
+    const code = err.code;
+    if (code === "ENOENT") return [];
+    if (code === "ENOTDIR") {
+      warnings.push(`${SLOTS_DIRNAME} is not a directory, so no session checkpoints could be listed.`);
+      return [];
+    }
     throw err;
   }
   const ids = /* @__PURE__ */ new Set();
@@ -21985,9 +21988,9 @@ function entryFor(selector, checkpoint, fromBackup, currentSessionId, now) {
   };
 }
 async function listCheckpoints(root, currentSessionId, limit, now = /* @__PURE__ */ new Date()) {
-  const selectors = [LEGACY_SELECTOR, ...await slotSelectors(root)];
-  const entries = [];
   const warnings = [];
+  const selectors = [LEGACY_SELECTOR, ...await slotSelectors(root, warnings)];
+  const entries = [];
   for (const selector of selectors) {
     try {
       const result = await readCheckpoint(selectorPath(root, selector));
@@ -22008,9 +22011,13 @@ async function listCheckpoints(root, currentSessionId, limit, now = /* @__PURE__
       });
     }
   }
-  entries.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  entries.sort((a, b) => sortTime(b.updatedAt) - sortTime(a.updatedAt));
   const shown = limit > 0 ? entries.slice(0, limit) : entries;
   return { entries: shown, total: entries.length, omitted: entries.length - shown.length, warnings };
+}
+function sortTime(iso) {
+  const ms = iso === null ? Number.NaN : Date.parse(iso);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
 }
 function renderListing(listing) {
   const lines = listing.entries.map((e) => {
@@ -22020,9 +22027,11 @@ function renderListing(listing) {
       e.age,
       e.branch ? `branch \`${e.branch}\`` : null,
       e.allTasksDone ? "all tasks done" : null,
-      e.isCurrentSession ? "this session" : null
+      e.isCurrentSession ? "this session" : null,
+      e.resumedFrom !== void 0 ? `resumed from \`${e.resumedFrom}\`` : null,
+      e.fromBackup ? "from backup" : null
     ].filter((p) => p !== null);
-    return `- ${parts.join(" \xB7 ")} \u2014 ${e.goal}`;
+    return `- ${parts.join(" \xB7 ")} \u2014 ${(e.goal ?? "").replace(/\s+/g, " ").trim()}`;
   });
   if (listing.omitted > 0) lines.push(`- \u2026and ${listing.omitted} older (call list_session_checkpoints with limit 0)`);
   return lines.join("\n");
@@ -22077,9 +22086,7 @@ function createRedactor() {
   };
 }
 
-// src/tools.ts
-var MAX_HASHED_CHANGES = 500;
-var CLIENT_ROOTS_TIMEOUT_MS = 2e3;
+// src/toolSchemas.ts
 var DEFAULT_LIST_LIMIT = 10;
 var projectRootArg = external_exports.string().optional().describe("Absolute path of the project. Defaults to the client's workspace root or the server's working directory.");
 var saveInput = {
@@ -22160,6 +22167,31 @@ var loadOutput = {
   text: external_exports.string().optional(),
   checkpoint: external_exports.record(external_exports.unknown()).optional()
 };
+var saveTool = {
+  title: "Save session checkpoint",
+  description: "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project (.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically.",
+  inputSchema: saveInput,
+  outputSchema: saveOutput,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+};
+var loadTool = {
+  title: "Load session checkpoint",
+  description: "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, touched files and recent commands, plus which files changed since it was saved. Call at the start of a session or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
+  inputSchema: loadInput,
+  outputSchema: loadOutput,
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+};
+var listTool = {
+  title: "List session checkpoints",
+  description: "List the checkpoints saved in the project (one per Claude Code session, plus a legacy .claude-checkpoint if present), newest first, with each one's goal, last-saved time, branch and whether all its tasks are done. Use it when the user wants to resume a different or older session; load one with load_session_checkpoint's `checkpoint`.",
+  inputSchema: listInput,
+  outputSchema: listOutput,
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+};
+
+// src/tools.ts
+var MAX_HASHED_CHANGES = 500;
+var CLIENT_ROOTS_TIMEOUT_MS = 2e3;
 var CHECKPOINT_FILES = /* @__PURE__ */ new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
 var isCheckpointFile = (p) => CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`) || p.startsWith(`${SLOTS_DIRNAME}/`);
 function registerTools(server, session) {
@@ -22175,39 +22207,9 @@ function registerTools(server, session) {
     const { roots } = await server.server.listRoots(void 0, { timeout: CLIENT_ROOTS_TIMEOUT_MS });
     return roots.map((r) => rootUriToPath(r.uri)).find((p) => p !== void 0);
   };
-  server.registerTool(
-    "save_session_checkpoint",
-    {
-      title: "Save session checkpoint",
-      description: "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project (.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically.",
-      inputSchema: saveInput,
-      outputSchema: saveOutput,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-    },
-    (args) => serialized(() => save(args, session, adopted, clientRoot))
-  );
-  server.registerTool(
-    "load_session_checkpoint",
-    {
-      title: "Load session checkpoint",
-      description: "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, touched files and recent commands, plus which files changed since it was saved. Call at the start of a session or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
-      inputSchema: loadInput,
-      outputSchema: loadOutput,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-    },
-    (args) => serialized(() => load(args, session, adopted, clientRoot))
-  );
-  server.registerTool(
-    "list_session_checkpoints",
-    {
-      title: "List session checkpoints",
-      description: "List the checkpoints saved in the project (one per Claude Code session, plus a legacy .claude-checkpoint if present), newest first, with each one's goal, last-saved time, branch and whether all its tasks are done. Use it when the user wants to resume a different or older session; load one with load_session_checkpoint's `checkpoint`.",
-      inputSchema: listInput,
-      outputSchema: listOutput,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
-    },
-    (args) => serialized(() => list(args, session, clientRoot))
-  );
+  server.registerTool("save_session_checkpoint", saveTool, (args) => serialized(() => save(args, session, adopted, clientRoot)));
+  server.registerTool("load_session_checkpoint", loadTool, (args) => serialized(() => load(args, session, adopted, clientRoot)));
+  server.registerTool("list_session_checkpoints", listTool, (args) => serialized(() => list(args, session, clientRoot)));
 }
 async function guard(fn) {
   try {
@@ -22219,69 +22221,104 @@ async function guard(fn) {
 }
 async function save(args, session, adopted, clientRoot) {
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const redactor = createRedactor();
   const warnings = session.warning ? [session.warning] : [];
-  const { file, previous, resumedFrom, continuing } = await saveBase(root, session, adopted.get(root), args.mode, warnings);
-  const base = previous?.checkpoint;
+  const target = await saveBase(root, session, adopted.get(root), args.mode, warnings);
   const git2 = await snapshot(root, MAX_HASHED_CHANGES);
-  const tasks = mergeTasks(base?.goal.tasks ?? [], (args.tasks ?? []).map((t) => ({ ...t, description: redactor.scrub(t.description) })));
-  const newCommands = (args.recentCommands ?? []).map((c) => ({
-    command: redactor.scrub(c.command),
-    exitCode: c.exitCode,
-    note: c.note === void 0 ? void 0 : redactor.scrub(c.note),
-    at: now
-  }));
-  let droppedOldest = false;
-  const keepLast = (items, max) => {
-    if (items.length > max) droppedOldest = true;
-    return items.slice(-max);
-  };
+  const checkpoint = buildCheckpoint({ args, root, session, target, git: git2, redactor: createRedactor(), warnings });
+  const bytes = await writeCheckpoint(target.file, checkpoint);
+  await warnIfNotIgnored(root, target.file, session, warnings);
+  return saveResult(target.file, bytes, args.mode, checkpoint, warnings);
+}
+function buildCheckpoint(input) {
+  const { args, root, session, target, git: git2, redactor, warnings } = input;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const base = target.previous?.checkpoint;
+  const content = mergeContent(input, base, now);
+  const files = recordFiles(input, base);
   const checkpoint = {
+    ...identity(target, root, session, now),
+    git: git2?.state ?? null,
+    goal: { primary: redactor.scrub(args.goal), tasks: content.tasks },
+    summary: content.summary,
+    nextSteps: content.nextSteps,
+    decisions: content.decisions,
+    modifiedFiles: files.modifiedFiles,
+    recentCommands: content.recentCommands,
+    meta: { redactions: redactor.count, truncated: content.truncated || files.truncated }
+  };
+  if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
+  if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
+  return checkpoint;
+}
+function identity(target, root, session, now) {
+  const own = target.continuing ? target.previous?.checkpoint : void 0;
+  return {
     version: CHECKPOINT_VERSION,
-    id: continuing ? base.id : randomUUID(),
-    createdAt: continuing ? base.createdAt : now,
+    id: own?.id ?? randomUUID(),
+    createdAt: own?.createdAt ?? now,
     updatedAt: now,
     generator: { ...GENERATOR },
     project: { name: path3.basename(root) },
     ...session.id !== null ? { sessionId: session.id } : {},
-    ...resumedFrom !== void 0 ? { resumedFrom } : {},
-    git: git2?.state ?? null,
-    goal: { primary: redactor.scrub(args.goal), tasks: keepLast(tasks, LIMITS.tasks) },
+    ...target.resumedFrom !== void 0 ? { resumedFrom: target.resumedFrom } : {}
+  };
+}
+function mergeContent({ args, redactor, warnings }, base, now) {
+  let truncated = false;
+  const keepLast = (items, max, label) => {
+    if (items.length > max) {
+      truncated = true;
+      warnings.push(`Dropped the ${items.length - max} oldest ${label} to stay within the limit of ${max}.`);
+    }
+    return items.slice(-max);
+  };
+  const tasks = mergeTasks(base?.goal.tasks ?? [], (args.tasks ?? []).map((t) => ({ ...t, description: redactor.scrub(t.description) })));
+  const decisions = dedupe([...base?.decisions ?? [], ...(args.decisions ?? []).map(redactor.scrub)]);
+  const commands = [...base?.recentCommands ?? [], ...(args.recentCommands ?? []).map((c) => scrubCommand(c, redactor, now))];
+  return {
     summary: args.summary !== void 0 ? redactor.scrub(args.summary) : base?.summary ?? "",
     nextSteps: args.nextSteps !== void 0 ? args.nextSteps.map(redactor.scrub) : base?.nextSteps ?? [],
-    decisions: keepLast(dedupe([...base?.decisions ?? [], ...(args.decisions ?? []).map(redactor.scrub)]), LIMITS.decisions),
-    modifiedFiles: [],
-    recentCommands: keepLast([...base?.recentCommands ?? [], ...newCommands], LIMITS.recentCommands),
-    meta: { redactions: 0, truncated: false }
+    tasks: keepLast(tasks, LIMITS.tasks, "tasks"),
+    decisions: keepLast(decisions, LIMITS.decisions, "decisions"),
+    recentCommands: keepLast(commands, LIMITS.recentCommands, "recent commands"),
+    truncated
   };
+}
+function scrubCommand(c, redactor, now) {
+  return {
+    command: redactor.scrub(c.command),
+    exitCode: c.exitCode,
+    note: c.note === void 0 ? void 0 : redactor.scrub(c.note),
+    at: now
+  };
+}
+function recordFiles({ root, git: git2, args, redactor, warnings }, base) {
   const files = buildFileList(root, git2?.changes ?? [], args.modifiedFiles ?? [], base?.modifiedFiles ?? [], redactor);
-  checkpoint.modifiedFiles = files.slice(0, LIMITS.modifiedFiles);
-  const tooManyFiles = files.length > LIMITS.modifiedFiles;
-  if (tooManyFiles) warnings.push(`Only the first ${LIMITS.modifiedFiles} of ${files.length} modified files were recorded.`);
-  if (droppedOldest) warnings.push("The oldest tasks, decisions or commands were dropped to stay within per-list limits.");
-  checkpoint.meta = { redactions: redactor.count, truncated: tooManyFiles || droppedOldest };
-  if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
-  if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
-  const bytes = await writeCheckpoint(file, checkpoint);
+  const truncated = files.length > LIMITS.modifiedFiles;
+  if (truncated) warnings.push(`Only the first ${LIMITS.modifiedFiles} of ${files.length} modified files were recorded.`);
+  return { modifiedFiles: files.slice(0, LIMITS.modifiedFiles), truncated };
+}
+async function warnIfNotIgnored(root, file, session, warnings) {
+  if (await isIgnored(root, path3.relative(root, file).split(path3.sep).join("/")) !== false) return;
   const shown = session.id !== null ? `${SLOTS_DIRNAME}/` : CHECKPOINT_FILENAME;
-  if (await isIgnored(root, path3.relative(root, file).split(path3.sep).join("/")) === false) {
-    warnings.push(`${shown} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
-  }
+  warnings.push(`${shown} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
+}
+function saveResult(file, bytes, mode, checkpoint, warnings) {
   const counts = {
     tasks: checkpoint.goal.tasks.length,
     modifiedFiles: checkpoint.modifiedFiles.length,
     recentCommands: checkpoint.recentCommands.length,
-    redactions: redactor.count
+    redactions: checkpoint.meta.redactions
   };
+  const at = checkpoint.git ? ` on ${checkpoint.git.branch}@${shortSha(checkpoint.git.head)}` : "";
   const text = [
-    `Checkpoint saved to ${file} (${bytes} bytes, ${args.mode}).`,
-    `${counts.tasks} task(s), ${counts.modifiedFiles} file(s), ${counts.recentCommands} command(s)${git2 ? ` on ${git2.state.branch}@${git2.state.head.slice(0, 9)}` : ""}.`,
+    `Checkpoint saved to ${file} (${bytes} bytes, ${mode}).`,
+    `${counts.tasks} task(s), ${counts.modifiedFiles} file(s), ${counts.recentCommands} command(s)${at}.`,
     ...warnings.map((w) => `\u26A0 ${w}`)
   ].join("\n");
   return {
     content: [{ type: "text", text }],
-    structuredContent: { path: file, bytes, mode: args.mode, counts, warnings }
+    structuredContent: { path: file, bytes, mode, counts, warnings }
   };
 }
 async function readOrWarn(file, selector, warnings) {
