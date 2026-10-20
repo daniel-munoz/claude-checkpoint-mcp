@@ -9,9 +9,9 @@
       "name": "claude-checkpoint-mcp",
       "source": "./plugin",
       "description": "Local MCP server to save session state, surviving crashes and context limits.",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "author": {
-        "name": "Tenzin"
+        "name": "Daniel Munoz"
       },
       "homepage": "https://github.com/daniel-munoz/claude-checkpoint-mcp",
       "license": "MIT",

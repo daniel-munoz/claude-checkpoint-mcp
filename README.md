@@ -9,12 +9,17 @@
 [![MCP](https://img.shields.io/badge/MCP-stdio-8A2BE2.svg)](https://modelcontextprotocol.io)
 [![M8ven Score](https://m8ven.ai/badge/mcp/tenlean/claude-checkpoint-mcp)](https://m8ven.ai/mcp/tenlean/claude-checkpoint-mcp?s=readme)
 
-`claude-checkpoint-mcp` is a local [Model Context Protocol](https://modelcontextprotocol.io) server with two tools:
+`claude-checkpoint-mcp` is a local [Model Context Protocol](https://modelcontextprotocol.io) server with three tools:
 
 - `save_session_checkpoint` writes your session's working state to a small JSON file in the project.
 - `load_session_checkpoint` turns that file back into a compact resume brief.
+- `list_session_checkpoints` lists the checkpoints in the project, so you can pick which session to resume.
+
+Each Claude Code session gets its own checkpoint, so several sessions can share a directory without overwriting each other.
 
 It runs entirely on your machine. Nothing is sent anywhere.
+
+Fork of [tenlean/claude-checkpoint-mcp](https://github.com/tenlean/claude-checkpoint-mcp) by Tenzin.
 
 ---
 
@@ -29,7 +34,7 @@ It runs entirely on your machine. Nothing is sent anywhere.
   - [Other MCP clients](#other-mcp-clients)
 - [Usage](#usage)
 - [Tool reference & examples](#tool-reference--examples)
-- [The `.claude-checkpoint` file](#the-claude-checkpoint-file)
+- [The checkpoint files](#the-checkpoint-files)
 - [Security & privacy](#security--privacy)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -92,6 +97,25 @@ The biggest saving comes from **drift detection**. At save time, the server reco
 - **Claude supplies the meaning**: the goal, progress, decisions, next steps, and which commands mattered.
 - **The server supplies the facts**: git branch and HEAD, every uncommitted or untracked file with its content hash, and timestamps.
 - **The server instructions teach Claude when to act.** Claude is told to load at the start of a session and to save after milestones, before risky operations, and when the conversation gets long. It doesn't need to be prompted every time.
+
+### One checkpoint per session
+
+Claude Code passes each MCP server its session id (`CLAUDE_CODE_SESSION_ID`). The server uses it to give every session its own file, `<project>/.claude-checkpoints/<session-id>.json`, so sessions that share a directory (`/tmp`, or wherever you run `claude agents`) never overwrite or merge into each other.
+
+- **Saving** always writes the current session's own file.
+- **Loading** returns the session's own checkpoint if it has one. Otherwise, if other checkpoints exist, it returns a list (goal, last-saved time, branch, whether all tasks are done) and Claude asks you which one to resume. It never picks one for you, even when there's only one.
+- **Resuming another session's checkpoint** loads it, but saves still go to the current session's own file, starting from what was loaded and recording where it came from (`resumedFrom`). The original is never modified.
+- **Checkpoints are kept** until you delete them, so an old session can be resumed later.
+- **Clients without a session id** (e.g. Claude Desktop) use the single `<project>/.claude-checkpoint` file, exactly as before. A `.claude-checkpoint` left by an earlier version shows up in the list as `legacy`.
+
+The session id an MCP server sees is the one it was started with:
+
+| You… | The server sees | Result |
+|---|---|---|
+| start a fresh `claude` (e.g. after a crash) | a new id | the list, so you pick what to resume |
+| run `/clear` | the same id as before the clear | the pre-clear checkpoint loads directly; later saves keep updating it |
+| run `claude --resume <id>` | that id | that session's checkpoint loads directly |
+| run `claude --continue`, or `--resume` without an id | possibly a different id | the list |
 
 ---
 
@@ -263,7 +287,7 @@ Task markers: `[x]` done · `[~]` in progress · `[ ]` pending · `[!]` blocked.
 
 ### `save_session_checkpoint`
 
-Writes `<projectRoot>/.claude-checkpoint`.
+Writes the current session's checkpoint: `<projectRoot>/.claude-checkpoints/<session-id>.json`, or `<projectRoot>/.claude-checkpoint` when the client provides no session id.
 
 | Parameter | Type | Required | Description |
 |---|---|:-:|---|
@@ -352,6 +376,7 @@ Read-only. Reads the checkpoint, checks for drift, and returns the brief.
 | Parameter | Type | Required | Description |
 |---|---|:-:|---|
 | `format` | `"brief"` \| `"full"` | | Default `brief` (markdown, as [above](#example-resume-brief)). `full` returns the complete checkpoint JSON plus drift. |
+| `checkpoint` | `string` | | Which checkpoint to load: a selector from `list_session_checkpoints` (a session id, or `legacy`). Omit to load the current session's own. |
 | `projectRoot` | `string` (absolute) | | Overrides [root resolution](#how-the-project-root-is-chosen) |
 
 **Examples:**
@@ -384,6 +409,42 @@ Read-only. Reads the checkpoint, checks for drift, and returns the brief.
 
 If no checkpoint exists, the tool returns `found: false` with a "nothing to resume" message. That isn't treated as an error.
 
+If the current session has no checkpoint but others exist, it returns `found: false` with `candidates` (the same entries as `list_session_checkpoints`, newest first, up to 10), `total`, `omitted`, and `text` telling Claude to ask you which one to resume. An unknown `checkpoint` selector is a tool error.
+
+### `list_session_checkpoints`
+
+Read-only. Lists the project's checkpoints, newest first; unreadable ones are listed last with a warning rather than hidden.
+
+| Parameter | Type | Required | Description |
+|---|---|:-:|---|
+| `limit` | `integer` ≥ 0 | | Default `10`. `0` returns all of them. |
+| `projectRoot` | `string` (absolute) | | Overrides [root resolution](#how-the-project-root-is-chosen) |
+
+**Structured output** (`structuredContent`, abridged):
+
+```json
+{
+  "path": "/home/me/scratch",
+  "entries": [
+    {
+      "selector": "8ce2c093-d512-42c2-a4d8-aa98280b55df",
+      "goal": "Investigate the flaky upload test",
+      "updatedAt": "2026-10-19T21:40:23.000Z",
+      "age": "2h ago",
+      "branch": null,
+      "allTasksDone": false,
+      "isCurrentSession": false,
+      "fromBackup": false
+    },
+    { "selector": "legacy", "goal": "Quick CSV analysis", "...": "..." }
+  ],
+  "total": 2,
+  "omitted": 0,
+  "warnings": [],
+  "text": "2 checkpoint(s) in /home/me/scratch, newest first: …"
+}
+```
+
 ### How the project root is chosen
 
 1. The `projectRoot` argument
@@ -391,13 +452,24 @@ If no checkpoint exists, the tool returns `found: false` with a "nothing to resu
 3. The client's first `file://` root, if the client supports MCP roots
 4. The server process's working directory
 
-The path must be absolute and must be an existing directory. Symlinks are resolved. The file is always written at exactly `<root>/.claude-checkpoint`.
+The path must be absolute and must be an existing directory. Symlinks are resolved. Checkpoints are always written under exactly that root: `<root>/.claude-checkpoints/<session-id>.json`, or `<root>/.claude-checkpoint` without a session id.
 
 ---
 
-## The `.claude-checkpoint` file
+## The checkpoint files
 
-This is plain, versioned JSON, so it's easy to read, diff, or edit by hand. Real example:
+```
+<project>/
+├── .claude-checkpoint              # legacy single checkpoint (clients without a session id, or 0.1.x)
+├── .claude-checkpoint.prev         # its backup
+└── .claude-checkpoints/            # one checkpoint per Claude Code session (directory mode 0700)
+    ├── <session-id>.json
+    └── <session-id>.json.prev      # each with its own backup
+```
+
+Every file is written atomically with mode 0600. The `.claude-checkpoint*` gitignore pattern covers all of them.
+
+Each one is plain, versioned JSON, so it's easy to read, diff, or edit by hand. Real example:
 
 ```json
 {
@@ -447,6 +519,8 @@ This is plain, versioned JSON, so it's easy to read, diff, or edit by hand. Real
 |---|---|
 | `version` | Schema version. Older versions are migrated on load; unknown versions are rejected. |
 | `id` / `createdAt` | Stable across `merge` saves; new on `replace` |
+| `sessionId` | The Claude Code session that owns the checkpoint (absent in the legacy file) |
+| `resumedFrom` | Selector of the checkpoint this one was started from, if any; kept on later saves |
 | `git` | `null` outside a git repo, or before the repo's first commit |
 | `modifiedFiles[].status` | Git porcelain code (`M`, `A`, `D`, `R`, `??`), or `M` for files reported only by Claude |
 | `modifiedFiles[].source` | `git` (detected) or `agent` (reported by Claude, or carried over from an earlier merge) |
@@ -459,7 +533,7 @@ Paths are always relative to the project root. The file never stores absolute pa
 
 ## Security & privacy
 
-- **Local only.** There are no network calls. The server reads git metadata and one file, and writes one file.
+- **Local only.** There are no network calls. The server reads git metadata and the project's checkpoint files, and writes only the current session's checkpoint.
 - **Secret redaction.** The following are replaced with `«redacted»` in commands, notes, summaries, tasks and decisions before anything touches disk:
   - `*_KEY=`, `*_TOKEN=`, `*_SECRET=`, `*PASSWORD=` assignments, including `Header: value` and JSON forms
   - `Authorization: Bearer …` headers
@@ -505,9 +579,11 @@ npm run inspect     # open the MCP Inspector against dist/index.js
 src/
 ├── index.ts    # entry point: stdio transport, signals, stderr logging
 ├── server.ts   # McpServer construction + server instructions
-├── tools.ts    # save/load tool schemas and handlers
+├── tools.ts    # save/load/list tool schemas and handlers
+├── session.ts  # session id validation
+├── listing.ts  # checkpoint listing for the "which one?" prompt
 ├── schema.ts   # zod schema for the checkpoint file (v1) + migrations
-├── store.ts    # project root resolution, atomic I/O, backup/fallback
+├── store.ts    # project root resolution, checkpoint paths, atomic I/O, backup/fallback
 ├── git.ts      # branch/HEAD/status snapshot, blob hashing, drift detection
 ├── redact.ts   # secret scrubbing
 └── render.ts   # checkpoint → markdown resume brief

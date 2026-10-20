@@ -3262,8 +3262,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path3) {
-      let input = path3;
+    function removeDotSegments(path4) {
+      let input = path4;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3672,8 +3672,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path3 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
+        const path4 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -7173,8 +7173,8 @@ var require_dist = __commonJS({
         return ajv;
       }
       const [formats, exportName] = opts.mode === "fast" ? [formats_1.fastFormats, fastName] : [formats_1.fullFormats, fullName];
-      const list = opts.formats || formats_1.formatNames;
-      addFormats(ajv, list, formats, exportName);
+      const list2 = opts.formats || formats_1.formatNames;
+      addFormats(ajv, list2, formats, exportName);
       if (opts.keywords)
         (0, limit_1.default)(ajv);
       return ajv;
@@ -7186,11 +7186,11 @@ var require_dist = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs, exportName) {
+    function addFormats(ajv, list2, fs, exportName) {
       var _a;
       var _b;
       (_a = (_b = ajv.opts.code).formats) !== null && _a !== void 0 ? _a : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
-      for (const f of list)
+      for (const f of list2)
         ajv.addFormat(f, fs[f]);
     }
     module.exports = exports = formatsPlugin;
@@ -7397,10 +7397,10 @@ function assignProp(target, prop, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path3) {
-  if (!path3)
+function getElementAtPath(obj, path4) {
+  if (!path4)
     return obj;
-  return path3.reduce((acc, key) => acc?.[key], obj);
+  return path4.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -7720,11 +7720,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path3, issues) {
+function prefixIssues(path4, issues) {
   return issues.map((iss) => {
     var _a;
     (_a = iss).path ?? (_a.path = []);
-    iss.path.unshift(path3);
+    iss.path.unshift(path4);
     return iss;
   });
 }
@@ -13813,8 +13813,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path3, errorMaps, issueData } = params;
-  const fullPath = [...path3, ...issueData.path || []];
+  const { data, path: path4, errorMaps, issueData } = params;
+  const fullPath = [...path4, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -13930,11 +13930,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path3, key) {
+  constructor(parent, value, path4, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path3;
+    this._path = path4;
     this._key = key;
   }
   get path() {
@@ -17379,7 +17379,7 @@ var NEVER2 = INVALID;
 // package.json
 var package_default = {
   name: "claude-checkpoint-mcp",
-  version: "0.1.1",
+  version: "0.2.0",
   mcpName: "io.github.tenlean/claude-checkpoint-mcp",
   description: "MCP server that checkpoints Claude Code session context to survive crashes and token limits",
   type: "module",
@@ -17472,6 +17472,9 @@ var Checkpoint = external_exports.object({
   updatedAt: external_exports.string().datetime(),
   generator: external_exports.object({ name: external_exports.string(), version: external_exports.string() }),
   project: external_exports.object({ name: external_exports.string() }),
+  // The Claude Code session that owns this checkpoint, and the selector it was resumed from.
+  sessionId: external_exports.string().max(128).optional(),
+  resumedFrom: external_exports.string().max(128).optional(),
   git: GitState.nullable(),
   goal: external_exports.object({
     primary: external_exports.string().min(1).max(LIMITS.goal),
@@ -17629,11 +17632,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path3) {
-  if (path3.length === 0) {
+function getDotPath(path4) {
+  if (path4.length === 0) {
     return "object root";
   }
-  return path3.reduce((acc, seg, index) => {
+  return path4.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -21621,7 +21624,7 @@ var EMPTY_COMPLETION_RESULT = {
 
 // src/tools.ts
 import { randomUUID } from "node:crypto";
-import path2 from "node:path";
+import path3 from "node:path";
 
 // src/git.ts
 import { execFile } from "node:child_process";
@@ -21695,23 +21698,23 @@ async function drift(root, saved, savedHashes, ignore = () => false) {
     git(root, ["rev-list", "--count", `${saved.head}..HEAD`]),
     git(root, ["diff", "--name-only", "-z", saved.head, "--"])
   ]);
-  const candidates = new Set(savedHashes.keys());
-  for (const c of now.changes) candidates.add(c.path);
+  const candidates2 = new Set(savedHashes.keys());
+  for (const c of now.changes) candidates2.add(c.path);
   if (diff !== null) {
-    for (const p of diff.split("\0")) if (p) candidates.add(p);
+    for (const p of diff.split("\0")) if (p) candidates2.add(p);
   }
-  for (const p of candidates) if (ignore(p)) candidates.delete(p);
+  for (const p of candidates2) if (ignore(p)) candidates2.delete(p);
   const differsFromHead = diff === null ? null : new Set(diff.split("\0").filter(Boolean));
   const untrackedNow = new Set(now.changes.filter((c) => c.status === "??").map((c) => c.path));
-  const current = await hashFiles(root, [...candidates]);
+  const current = await hashFiles(root, [...candidates2]);
   const changedSince = [];
-  for (const path3 of candidates) {
-    const was = savedHashes.get(path3);
-    const is = current.get(path3) ?? DELETED;
+  for (const path4 of candidates2) {
+    const was = savedHashes.get(path4);
+    const is = current.get(path4) ?? DELETED;
     if (was !== void 0) {
-      if (was !== is) changedSince.push(path3);
-    } else if (differsFromHead === null || differsFromHead.has(path3) || untrackedNow.has(path3)) {
-      changedSince.push(path3);
+      if (was !== is) changedSince.push(path4);
+    } else if (differsFromHead === null || differsFromHead.has(path4) || untrackedNow.has(path4)) {
+      changedSince.push(path4);
     }
   }
   return {
@@ -21722,54 +21725,9 @@ async function drift(root, saved, savedHashes, ignore = () => false) {
   };
 }
 
-// src/redact.ts
-var REDACTED = "\xABredacted\xBB";
-var NOT_REDACTED = `(?!${REDACTED})`;
-var VALUE = `${NOT_REDACTED}("[^"]*"|'[^']*'|[^\\s"']+)`;
-var RULES = [
-  // scheme://user:pass@host
-  { pattern: /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, replace: `$1${REDACTED}@` },
-  // Authorization: Bearer <token>
-  { pattern: new RegExp(`(\\bBearer\\s+)${NOT_REDACTED}[A-Za-z0-9._~+/=-]+`, "gi"), replace: `$1${REDACTED}` },
-  // API_KEY=..., "token": "...", X-Api-Key: ... — the identifier must *end* in the
-  // secret word so prose like "keyboard: ..." or "tokens: 1500" is left alone.
-  {
-    pattern: new RegExp(
-      `([A-Za-z0-9_-]*(?:key|token|secret|passw(?:or)?d|credentials?)["']?)(\\s*[=:]\\s*)${VALUE}`,
-      "gi"
-    ),
-    replace: `$1$2${REDACTED}`
-  },
-  // --password foo, --token=foo
-  {
-    pattern: new RegExp(`(--(?:password|passwd|token|api-key|secret)(?:=|\\s+))${VALUE}`, "gi"),
-    replace: `$1${REDACTED}`
-  },
-  // Bare well-known token formats.
-  { pattern: /\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}/g, replace: REDACTED },
-  { pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g, replace: REDACTED },
-  { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g, replace: REDACTED },
-  { pattern: /\bAKIA[0-9A-Z]{16}\b/g, replace: REDACTED },
-  { pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, replace: REDACTED }
-];
-function createRedactor() {
-  let count = 0;
-  return {
-    scrub(text) {
-      let out = text;
-      for (const { pattern, replace } of RULES) {
-        out = out.replace(pattern, (...args) => {
-          count++;
-          return replace.replace(/\$(\d)/g, (_, i) => String(args[Number(i)] ?? ""));
-        });
-      }
-      return out;
-    },
-    get count() {
-      return count;
-    }
-  };
-}
+// src/listing.ts
+import { readdir } from "node:fs/promises";
+import path2 from "node:path";
 
 // src/render.ts
 var BRIEF_MAX_FILES = 40;
@@ -21846,19 +21804,38 @@ function renderDrift(cp, drift2) {
   return lines;
 }
 
+// src/session.ts
+var LEGACY_SELECTOR = "legacy";
+var SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+function resolveSessionId(raw) {
+  if (!raw) return { id: null };
+  if (SESSION_ID_PATTERN.test(raw) && raw !== LEGACY_SELECTOR) return { id: raw };
+  return {
+    id: null,
+    warning: "CLAUDE_CODE_SESSION_ID is not a usable session id; checkpoints are using the shared .claude-checkpoint file."
+  };
+}
+
 // src/store.ts
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { chmod, copyFile, open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
+import { chmod, copyFile, mkdir, open, readFile, realpath, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 var BACKUP_SUFFIX = ".prev";
 var FILE_MODE = 384;
+var DIR_MODE = 448;
+var SLOTS_DIRNAME = ".claude-checkpoints";
 function checkpointPath(root) {
   return path.join(root, CHECKPOINT_FILENAME);
 }
-function backupPath(root) {
-  return checkpointPath(root) + BACKUP_SUFFIX;
+function backupPath(file) {
+  return file + BACKUP_SUFFIX;
+}
+function selectorPath(root, selector) {
+  if (selector === LEGACY_SELECTOR) return checkpointPath(root);
+  if (!SESSION_ID_PATTERN.test(selector)) throw new CheckpointError(`unknown checkpoint selector: ${JSON.stringify(selector)}`);
+  return path.join(root, SLOTS_DIRNAME, `${selector}.json`);
 }
 var CheckpointError = class extends Error {
   name = "CheckpointError";
@@ -21904,18 +21881,19 @@ async function readParsed(file) {
     return err instanceof Error ? err : new Error(String(err));
   }
 }
-async function readCheckpoint(root) {
-  const primary = await readParsed(checkpointPath(root));
+async function readCheckpoint(file) {
+  const primary = await readParsed(file);
   if (isCheckpoint(primary)) {
     return { checkpoint: primary, fromBackup: false, warnings: [] };
   }
-  const backup = await readParsed(backupPath(root));
+  const backup = await readParsed(backupPath(file));
   if (isCheckpoint(backup)) {
+    const name = path.basename(file);
     const why = primary === "missing" ? "is missing" : `is unreadable (${summarizeError(primary)})`;
     return {
       checkpoint: backup,
       fromBackup: true,
-      warnings: [`${CHECKPOINT_FILENAME} ${why}; loaded the previous checkpoint from ${CHECKPOINT_FILENAME}${BACKUP_SUFFIX}.`]
+      warnings: [`${name} ${why}; loaded the previous checkpoint from ${name}${BACKUP_SUFFIX}.`]
     };
   }
   if (primary === "missing" && backup === "missing") return null;
@@ -21944,12 +21922,12 @@ function fitToSize(checkpoint) {
   if (trimmed) checkpoint.meta.truncated = true;
   return trimmed;
 }
-async function writeCheckpoint(root, checkpoint) {
-  const target = checkpointPath(root);
+async function writeCheckpoint(target, checkpoint) {
   const data = serialize(checkpoint);
+  await mkdir(path.dirname(target), { recursive: true, mode: DIR_MODE });
   if (isCheckpoint(await readParsed(target))) {
-    await copyFile(target, backupPath(root));
-    await chmod(backupPath(root), FILE_MODE);
+    await copyFile(target, backupPath(target));
+    await chmod(backupPath(target), FILE_MODE);
   }
   const tmp = `${target}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   const handle = await open(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, FILE_MODE);
@@ -21973,9 +21951,133 @@ async function writeCheckpoint(root, checkpoint) {
   return Buffer.byteLength(data);
 }
 
+// src/listing.ts
+async function slotSelectors(root) {
+  let names;
+  try {
+    names = await readdir(path2.join(root, SLOTS_DIRNAME));
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    throw err;
+  }
+  const ids = /* @__PURE__ */ new Set();
+  for (const name of names) {
+    const stem = name.endsWith(".json") ? name.slice(0, -5) : name.endsWith(`.json${BACKUP_SUFFIX}`) ? name.slice(0, -10) : null;
+    if (stem !== null && SESSION_ID_PATTERN.test(stem) && stem !== LEGACY_SELECTOR) ids.add(stem);
+  }
+  return [...ids];
+}
+function entryFor(selector, checkpoint, fromBackup, currentSessionId, now) {
+  const tasks = checkpoint.goal.tasks;
+  return {
+    selector,
+    goal: checkpoint.goal.primary,
+    updatedAt: checkpoint.updatedAt,
+    age: formatAge(checkpoint.updatedAt, now),
+    branch: checkpoint.git?.branch ?? null,
+    allTasksDone: tasks.length > 0 && tasks.every((t) => t.status === "done"),
+    isCurrentSession: selector === currentSessionId,
+    fromBackup,
+    ...checkpoint.resumedFrom !== void 0 ? { resumedFrom: checkpoint.resumedFrom } : {}
+  };
+}
+async function listCheckpoints(root, currentSessionId, limit, now = /* @__PURE__ */ new Date()) {
+  const selectors = [LEGACY_SELECTOR, ...await slotSelectors(root)];
+  const entries = [];
+  const warnings = [];
+  for (const selector of selectors) {
+    try {
+      const result = await readCheckpoint(selectorPath(root, selector));
+      if (result) entries.push(entryFor(selector, result.checkpoint, result.fromBackup, currentSessionId, now));
+    } catch (err) {
+      const reason = err.message;
+      warnings.push(`Checkpoint ${selector} could not be read: ${reason}`);
+      entries.push({
+        selector,
+        goal: null,
+        updatedAt: null,
+        age: null,
+        branch: null,
+        allTasksDone: false,
+        isCurrentSession: selector === currentSessionId,
+        fromBackup: false,
+        unreadable: reason
+      });
+    }
+  }
+  entries.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  const shown = limit > 0 ? entries.slice(0, limit) : entries;
+  return { entries: shown, total: entries.length, omitted: entries.length - shown.length, warnings };
+}
+function renderListing(listing) {
+  const lines = listing.entries.map((e) => {
+    if (e.unreadable) return `- \`${e.selector}\` \u2014 unreadable (${e.unreadable})`;
+    const parts = [
+      `\`${e.selector}\``,
+      e.age,
+      e.branch ? `branch \`${e.branch}\`` : null,
+      e.allTasksDone ? "all tasks done" : null,
+      e.isCurrentSession ? "this session" : null
+    ].filter((p) => p !== null);
+    return `- ${parts.join(" \xB7 ")} \u2014 ${e.goal}`;
+  });
+  if (listing.omitted > 0) lines.push(`- \u2026and ${listing.omitted} older (call list_session_checkpoints with limit 0)`);
+  return lines.join("\n");
+}
+
+// src/redact.ts
+var REDACTED = "\xABredacted\xBB";
+var NOT_REDACTED = `(?!${REDACTED})`;
+var VALUE = `${NOT_REDACTED}("[^"]*"|'[^']*'|[^\\s"']+)`;
+var RULES = [
+  // scheme://user:pass@host
+  { pattern: /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi, replace: `$1${REDACTED}@` },
+  // Authorization: Bearer <token>
+  { pattern: new RegExp(`(\\bBearer\\s+)${NOT_REDACTED}[A-Za-z0-9._~+/=-]+`, "gi"), replace: `$1${REDACTED}` },
+  // API_KEY=..., "token": "...", X-Api-Key: ... — the identifier must *end* in the
+  // secret word so prose like "keyboard: ..." or "tokens: 1500" is left alone.
+  {
+    pattern: new RegExp(
+      `([A-Za-z0-9_-]*(?:key|token|secret|passw(?:or)?d|credentials?)["']?)(\\s*[=:]\\s*)${VALUE}`,
+      "gi"
+    ),
+    replace: `$1$2${REDACTED}`
+  },
+  // --password foo, --token=foo
+  {
+    pattern: new RegExp(`(--(?:password|passwd|token|api-key|secret)(?:=|\\s+))${VALUE}`, "gi"),
+    replace: `$1${REDACTED}`
+  },
+  // Bare well-known token formats.
+  { pattern: /\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}/g, replace: REDACTED },
+  { pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g, replace: REDACTED },
+  { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g, replace: REDACTED },
+  { pattern: /\bAKIA[0-9A-Z]{16}\b/g, replace: REDACTED },
+  { pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, replace: REDACTED }
+];
+function createRedactor() {
+  let count = 0;
+  return {
+    scrub(text) {
+      let out = text;
+      for (const { pattern, replace } of RULES) {
+        out = out.replace(pattern, (...args) => {
+          count++;
+          return replace.replace(/\$(\d)/g, (_, i) => String(args[Number(i)] ?? ""));
+        });
+      }
+      return out;
+    },
+    get count() {
+      return count;
+    }
+  };
+}
+
 // src/tools.ts
 var MAX_HASHED_CHANGES = 500;
 var CLIENT_ROOTS_TIMEOUT_MS = 2e3;
+var DEFAULT_LIST_LIMIT = 10;
 var projectRootArg = external_exports.string().optional().describe("Absolute path of the project. Defaults to the client's workspace root or the server's working directory.");
 var saveInput = {
   goal: external_exports.string().min(1).max(LIMITS.goal).describe("The primary objective of the session, in one or two sentences."),
@@ -22008,11 +22110,40 @@ var saveOutput = {
 };
 var loadInput = {
   format: external_exports.enum(["brief", "full"]).default("brief").describe("brief: compact markdown for resuming (recommended). full: the complete checkpoint JSON."),
+  checkpoint: external_exports.string().optional().describe("Which checkpoint to load, as a selector from list_session_checkpoints: a session id, or 'legacy'. Omit to load this session's own checkpoint."),
   projectRoot: projectRootArg
+};
+var listEntryOutput = external_exports.object({
+  selector: external_exports.string(),
+  goal: external_exports.string().nullable(),
+  updatedAt: external_exports.string().nullable(),
+  age: external_exports.string().nullable(),
+  branch: external_exports.string().nullable(),
+  allTasksDone: external_exports.boolean(),
+  isCurrentSession: external_exports.boolean(),
+  fromBackup: external_exports.boolean(),
+  resumedFrom: external_exports.string().optional(),
+  unreadable: external_exports.string().optional()
+});
+var listInput = {
+  limit: external_exports.number().int().min(0).default(DEFAULT_LIST_LIMIT).describe("Maximum number of checkpoints to return, newest first. 0 returns all of them."),
+  projectRoot: projectRootArg
+};
+var listOutput = {
+  path: external_exports.string(),
+  entries: external_exports.array(listEntryOutput),
+  total: external_exports.number(),
+  omitted: external_exports.number(),
+  warnings: external_exports.array(external_exports.string()),
+  text: external_exports.string()
 };
 var loadOutput = {
   found: external_exports.boolean(),
   path: external_exports.string(),
+  selector: external_exports.string().optional(),
+  candidates: external_exports.array(listEntryOutput).optional(),
+  total: external_exports.number().optional(),
+  omitted: external_exports.number().optional(),
   fromBackup: external_exports.boolean().optional(),
   updatedAt: external_exports.string().optional(),
   drift: external_exports.object({
@@ -22023,11 +22154,13 @@ var loadOutput = {
   }).nullable().optional(),
   warnings: external_exports.array(external_exports.string()),
   brief: external_exports.string().optional(),
+  text: external_exports.string().optional(),
   checkpoint: external_exports.record(external_exports.unknown()).optional()
 };
 var CHECKPOINT_FILES = /* @__PURE__ */ new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
-var isCheckpointFile = (p) => CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`);
-function registerTools(server) {
+var isCheckpointFile = (p) => CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`) || p.startsWith(`${SLOTS_DIRNAME}/`);
+function registerTools(server, session) {
+  const adopted = /* @__PURE__ */ new Map();
   let queue = Promise.resolve();
   const serialized = (fn) => {
     const next = queue.then(() => guard(fn));
@@ -22048,18 +22181,29 @@ function registerTools(server) {
       outputSchema: saveOutput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
     },
-    (args) => serialized(() => save(args, clientRoot))
+    (args) => serialized(() => save(args, session, adopted, clientRoot))
   );
   server.registerTool(
     "load_session_checkpoint",
     {
       title: "Load session checkpoint",
-      description: "Load the project's .claude-checkpoint and return a compact brief of the previous session's goal, progress, next steps, touched files and recent commands, plus which files changed since it was saved. Call at the start of a session or when the user asks to resume.",
+      description: "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, touched files and recent commands, plus which files changed since it was saved. Call at the start of a session or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
       inputSchema: loadInput,
       outputSchema: loadOutput,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     },
-    (args) => serialized(() => load(args.format, args.projectRoot, clientRoot))
+    (args) => serialized(() => load(args, session, adopted, clientRoot))
+  );
+  server.registerTool(
+    "list_session_checkpoints",
+    {
+      title: "List session checkpoints",
+      description: "List the checkpoints saved in the project (one per Claude Code session, plus a legacy .claude-checkpoint if present), newest first, with each one's goal, last-saved time, branch and whether all its tasks are done. Use it when the user wants to resume a different or older session; load one with load_session_checkpoint's `checkpoint`.",
+      inputSchema: listInput,
+      outputSchema: listOutput,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    (args) => serialized(() => list(args, session, clientRoot))
   );
 }
 async function guard(fn) {
@@ -22070,15 +22214,23 @@ async function guard(fn) {
     return { isError: true, content: [{ type: "text", text: `Checkpoint error: ${message}` }] };
   }
 }
-async function save(args, clientRoot) {
+async function save(args, session, adopted, clientRoot) {
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const redactor = createRedactor();
-  const warnings = [];
-  const previous = args.mode === "merge" ? await readCheckpoint(root).catch(() => null) : null;
-  if (args.mode === "merge" && previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
+  const warnings = session.warning ? [session.warning] : [];
+  const file = selectorPath(root, session.id ?? LEGACY_SELECTOR);
+  const own = await readCheckpoint(file).catch(() => null);
+  const adoptedSelector = own === null ? adopted.get(root) : void 0;
+  const resumedFrom = own?.checkpoint.resumedFrom ?? adoptedSelector;
+  let previous = null;
+  if (args.mode === "merge") {
+    previous = own ?? (adoptedSelector === void 0 ? null : await readCheckpoint(selectorPath(root, adoptedSelector)).catch(() => null));
+    if (previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
+  }
   if (previous) warnings.push(...previous.warnings);
   const base = previous?.checkpoint;
+  const continuing = previous !== null && previous === own;
   const git2 = await snapshot(root, MAX_HASHED_CHANGES);
   const tasks = mergeTasks(base?.goal.tasks ?? [], (args.tasks ?? []).map((t) => ({ ...t, description: redactor.scrub(t.description) })));
   const newCommands = (args.recentCommands ?? []).map((c) => ({
@@ -22094,11 +22246,13 @@ async function save(args, clientRoot) {
   };
   const checkpoint = {
     version: CHECKPOINT_VERSION,
-    id: base?.id ?? randomUUID(),
-    createdAt: base?.createdAt ?? now,
+    id: continuing ? base.id : randomUUID(),
+    createdAt: continuing ? base.createdAt : now,
     updatedAt: now,
     generator: { ...GENERATOR },
-    project: { name: path2.basename(root) },
+    project: { name: path3.basename(root) },
+    ...session.id !== null ? { sessionId: session.id } : {},
+    ...resumedFrom !== void 0 ? { resumedFrom } : {},
     git: git2?.state ?? null,
     goal: { primary: redactor.scrub(args.goal), tasks: keepLast(tasks, LIMITS.tasks) },
     summary: args.summary !== void 0 ? redactor.scrub(args.summary) : base?.summary ?? "",
@@ -22116,11 +22270,11 @@ async function save(args, clientRoot) {
   checkpoint.meta = { redactions: redactor.count, truncated: tooManyFiles || droppedOldest };
   if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_BYTES / 1024} KB.`);
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
-  const bytes = await writeCheckpoint(root, checkpoint);
-  if (await isIgnored(root, CHECKPOINT_FILENAME) === false) {
-    warnings.push(`${CHECKPOINT_FILENAME} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
+  const bytes = await writeCheckpoint(file, checkpoint);
+  const shown = session.id !== null ? `${SLOTS_DIRNAME}/` : CHECKPOINT_FILENAME;
+  if (await isIgnored(root, path3.relative(root, file).split(path3.sep).join("/")) === false) {
+    warnings.push(`${shown} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
   }
-  const file = checkpointPath(root);
   const counts = {
     tasks: checkpoint.goal.tasks.length,
     modifiedFiles: checkpoint.modifiedFiles.length,
@@ -22137,17 +22291,56 @@ async function save(args, clientRoot) {
     structuredContent: { path: file, bytes, mode: args.mode, counts, warnings }
   };
 }
-async function load(format, projectRoot, clientRoot) {
-  const root = await resolveRoot(projectRoot, clientRoot);
-  const file = checkpointPath(root);
-  const result = await readCheckpoint(root);
-  if (result === null) {
+async function load(args, session, adopted, clientRoot) {
+  const root = await resolveRoot(args.projectRoot, clientRoot);
+  const sessionWarnings = session.warning ? [session.warning] : [];
+  const own = session.id ?? LEGACY_SELECTOR;
+  if (args.checkpoint !== void 0) {
+    const file2 = selectorPath(root, args.checkpoint);
+    const result2 = await readCheckpoint(file2);
+    if (result2 === null) {
+      throw new CheckpointError(`no checkpoint "${args.checkpoint}" in ${root}. Call list_session_checkpoints to see the available ones.`);
+    }
+    if (args.checkpoint !== own) adopted.set(root, args.checkpoint);
+    return loaded(root, args.checkpoint, file2, result2, args.format, sessionWarnings);
+  }
+  const file = selectorPath(root, own);
+  const result = await readCheckpoint(file);
+  if (result !== null) return loaded(root, own, file, result, args.format, sessionWarnings);
+  const listing = await listCheckpoints(root, session.id, DEFAULT_LIST_LIMIT);
+  if (listing.total === 0) {
     return {
       content: [{ type: "text", text: `No checkpoint found at ${file}. Nothing to resume; start fresh.` }],
-      structuredContent: { found: false, path: file, warnings: [] }
+      structuredContent: { found: false, path: file, warnings: sessionWarnings }
     };
   }
-  const { checkpoint, fromBackup, warnings } = result;
+  return candidates(root, file, listing, sessionWarnings);
+}
+function candidates(root, file, listing, sessionWarnings) {
+  const warnings = [...sessionWarnings, ...listing.warnings];
+  const text = [
+    `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. Show this list to the user and ask which one to resume (or whether to start fresh); then call load_session_checkpoint with \`checkpoint\` set to the chosen selector. Do not choose one yourself.`,
+    "",
+    renderListing(listing),
+    ...warnings.map((w) => `\u26A0 ${w}`)
+  ].join("\n");
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: {
+      found: false,
+      path: file,
+      candidates: listing.entries,
+      total: listing.total,
+      omitted: listing.omitted,
+      warnings,
+      // As with the brief, clients may show the model only structuredContent, so the instructions go here too.
+      text
+    }
+  };
+}
+async function loaded(root, selector, file, result, format, sessionWarnings) {
+  const { checkpoint, fromBackup } = result;
+  const warnings = [...sessionWarnings, ...result.warnings];
   let drift2 = null;
   if (checkpoint.git) {
     const savedHashes = new Map(
@@ -22161,6 +22354,7 @@ async function load(format, projectRoot, clientRoot) {
     structuredContent: {
       found: true,
       path: file,
+      selector,
       fromBackup,
       updatedAt: checkpoint.updatedAt,
       drift: drift2,
@@ -22169,6 +22363,16 @@ async function load(format, projectRoot, clientRoot) {
       // so the brief has to be here too or the model never sees it.
       ...format === "full" ? { checkpoint } : { brief: text }
     }
+  };
+}
+async function list(args, session, clientRoot) {
+  const root = await resolveRoot(args.projectRoot, clientRoot);
+  const listing = await listCheckpoints(root, session.id, args.limit);
+  const warnings = [...session.warning ? [session.warning] : [], ...listing.warnings];
+  const text = listing.total === 0 ? `No checkpoints in ${root}.` : [`${listing.total} checkpoint(s) in ${root}, newest first:`, "", renderListing(listing), ...warnings.map((w) => `\u26A0 ${w}`)].join("\n");
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: { path: root, entries: listing.entries, total: listing.total, omitted: listing.omitted, warnings, text }
   };
 }
 function mergeTasks(previous, incoming) {
@@ -22180,8 +22384,8 @@ function dedupe(items) {
   return [...new Set(items)];
 }
 function normalizePath(root, p) {
-  const rel = path2.isAbsolute(p) ? path2.relative(root, p) : path2.normalize(p);
-  return rel.startsWith("..") ? p : rel.split(path2.sep).join("/");
+  const rel = path3.isAbsolute(p) ? path3.relative(root, p) : path3.normalize(p);
+  return rel.startsWith("..") ? p : rel.split(path3.sep).join("/");
 }
 function buildFileList(root, gitChanges, agentFiles, previous, redactor) {
   const gitByPath = new Map(gitChanges.filter((c) => !isCheckpointFile(c.path)).map((c) => [c.path, c]));
@@ -22210,13 +22414,15 @@ function buildFileList(root, gitChanges, agentFiles, previous, redactor) {
 }
 
 // src/server.ts
-var INSTRUCTIONS = `Persists session context to a .claude-checkpoint file in the project so work survives crashes, /clear, and context limits.
+var INSTRUCTIONS = `Persists session context to a checkpoint file in the project so work survives crashes, /clear, and context limits. Each Claude Code session has its own checkpoint.
 - At the start of a session, or when the user says "resume" / "continue where we left off", call load_session_checkpoint and follow its next steps. Re-read only the files it lists as changed since the checkpoint.
+- If load_session_checkpoint returns a list instead of a checkpoint, show the list to the user and ask which one to resume, then call it again with that checkpoint. Never pick one on the user's behalf.
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
-function createServer() {
+function createServer(options = {}) {
   const server = new McpServer({ name: GENERATOR.name, version: GENERATOR.version }, { instructions: INSTRUCTIONS });
-  registerTools(server);
+  const session = { id: options.sessionId ?? null, ...options.sessionWarning ? { warning: options.sessionWarning } : {} };
+  registerTools(server, session);
   return server;
 }
 
@@ -22226,7 +22432,8 @@ function log(message) {
 `);
 }
 async function main() {
-  const server = createServer();
+  const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID);
+  const server = createServer({ sessionId: session.id, ...session.warning ? { sessionWarning: session.warning } : {} });
   const transport = new StdioServerTransport();
   let closing = false;
   const shutdown = async (reason) => {
@@ -22243,7 +22450,7 @@ async function main() {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.stdin.on("end", () => void shutdown("stdin closed"));
   await server.connect(transport);
-  log(`v${GENERATOR.version} ready on stdio (cwd: ${process.cwd()})`);
+  log(`v${GENERATOR.version} ready on stdio (cwd: ${process.cwd()}, session: ${session.id ?? "none"})`);
 }
 main().catch((err) => {
   log(`fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
