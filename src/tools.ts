@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { drift as computeDrift, isIgnored, snapshot, type Drift } from "./git.js";
+import { listCheckpoints, renderListing, type Listing } from "./listing.js";
 import { createRedactor, type Redactor } from "./redact.js";
 import { renderBrief } from "./render.js";
 import {
@@ -17,6 +18,7 @@ import {
   type ModifiedFile,
   type RecentCommand,
 } from "./schema.js";
+import { LEGACY_SELECTOR } from "./session.js";
 import {
   BACKUP_SUFFIX,
   CheckpointError,
@@ -25,12 +27,21 @@ import {
   readCheckpoint,
   resolveRoot,
   rootUriToPath,
+  selectorPath,
   writeCheckpoint,
+  type LoadResult,
 } from "./store.js";
+
+/** The Claude Code session this server was started for; id is null when the client doesn't provide one. */
+export interface Session {
+  id: string | null;
+  warning?: string;
+}
 
 /** Upper bound on git-detected files hashed per save; beyond this, drift falls back to diff vs HEAD. */
 const MAX_HASHED_CHANGES = 500;
 const CLIENT_ROOTS_TIMEOUT_MS = 2000;
+const DEFAULT_LIST_LIMIT = 10;
 
 const projectRootArg = z
   .string()
@@ -100,12 +111,52 @@ const loadInput = {
     .enum(["brief", "full"])
     .default("brief")
     .describe("brief: compact markdown for resuming (recommended). full: the complete checkpoint JSON."),
+  checkpoint: z
+    .string()
+    .optional()
+    .describe("Which checkpoint to load, as a selector from list_session_checkpoints: a session id, or 'legacy'. Omit to load this session's own checkpoint."),
   projectRoot: projectRootArg,
+};
+
+const listEntryOutput = z.object({
+  selector: z.string(),
+  goal: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  age: z.string().nullable(),
+  branch: z.string().nullable(),
+  allTasksDone: z.boolean(),
+  isCurrentSession: z.boolean(),
+  fromBackup: z.boolean(),
+  resumedFrom: z.string().optional(),
+  unreadable: z.string().optional(),
+});
+
+const listInput = {
+  limit: z
+    .number()
+    .int()
+    .min(0)
+    .default(DEFAULT_LIST_LIMIT)
+    .describe("Maximum number of checkpoints to return, newest first. 0 returns all of them."),
+  projectRoot: projectRootArg,
+};
+
+const listOutput = {
+  path: z.string(),
+  entries: z.array(listEntryOutput),
+  total: z.number(),
+  omitted: z.number(),
+  warnings: z.array(z.string()),
+  text: z.string(),
 };
 
 const loadOutput = {
   found: z.boolean(),
   path: z.string(),
+  selector: z.string().optional(),
+  candidates: z.array(listEntryOutput).optional(),
+  total: z.number().optional(),
+  omitted: z.number().optional(),
   fromBackup: z.boolean().optional(),
   updatedAt: z.string().optional(),
   drift: z
@@ -119,15 +170,22 @@ const loadOutput = {
     .optional(),
   warnings: z.array(z.string()),
   brief: z.string().optional(),
+  text: z.string().optional(),
   checkpoint: z.record(z.unknown()).optional(),
 };
 
 type SaveArgs = z.infer<z.ZodObject<typeof saveInput>>;
+type LoadArgs = z.infer<z.ZodObject<typeof loadInput>>;
+type ListArgs = z.infer<z.ZodObject<typeof listInput>>;
 
 const CHECKPOINT_FILES = new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
 const isCheckpointFile = (p: string) => CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`);
 
-export function registerTools(server: McpServer): void {
+export function registerTools(server: McpServer, session: Session): void {
+  // Per project root: the checkpoint this session chose to resume from (by explicit selector),
+  // used as the merge base until the session's own checkpoint exists.
+  const adopted = new Map<string, string>();
+
   // The SDK dispatches requests concurrently and models may issue parallel tool calls;
   // run checkpoint operations one at a time so merges and reads never interleave.
   let queue: Promise<unknown> = Promise.resolve();
@@ -164,14 +222,30 @@ export function registerTools(server: McpServer): void {
     {
       title: "Load session checkpoint",
       description:
-        "Load the project's .claude-checkpoint and return a compact brief of the previous session's goal, progress, next steps, " +
+        "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, " +
         "touched files and recent commands, plus which files changed since it was saved. Call at the start of a session " +
-        "or when the user asks to resume.",
+        "or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns " +
+        "a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
       inputSchema: loadInput,
       outputSchema: loadOutput,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    (args) => serialized(() => load(args.format, args.projectRoot, clientRoot)),
+    (args) => serialized(() => load(args, session, adopted, clientRoot)),
+  );
+
+  server.registerTool(
+    "list_session_checkpoints",
+    {
+      title: "List session checkpoints",
+      description:
+        "List the checkpoints saved in the project (one per Claude Code session, plus a legacy .claude-checkpoint if present), " +
+        "newest first, with each one's goal, last-saved time, branch and whether all its tasks are done. " +
+        "Use it when the user wants to resume a different or older session; load one with load_session_checkpoint's `checkpoint`.",
+      inputSchema: listInput,
+      outputSchema: listOutput,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    (args) => serialized(() => list(args, session, clientRoot)),
   );
 }
 
@@ -263,22 +337,75 @@ async function save(args: SaveArgs, clientRoot: () => Promise<string | undefined
 }
 
 async function load(
-  format: "brief" | "full",
-  projectRoot: string | undefined,
+  args: LoadArgs,
+  session: Session,
+  adopted: Map<string, string>,
   clientRoot: () => Promise<string | undefined>,
 ): Promise<CallToolResult> {
-  const root = await resolveRoot(projectRoot, clientRoot);
-  const file = checkpointPath(root);
-  const result = await readCheckpoint(checkpointPath(root));
+  const root = await resolveRoot(args.projectRoot, clientRoot);
+  const sessionWarnings = session.warning ? [session.warning] : [];
+  const own = session.id ?? LEGACY_SELECTOR;
 
-  if (result === null) {
-    return {
-      content: [{ type: "text", text: `No checkpoint found at ${file}. Nothing to resume; start fresh.` }],
-      structuredContent: { found: false, path: file, warnings: [] },
-    };
+  if (args.checkpoint !== undefined) {
+    const file = selectorPath(root, args.checkpoint);
+    const result = await readCheckpoint(file);
+    if (result === null) {
+      throw new CheckpointError(`no checkpoint "${args.checkpoint}" in ${root}. Call list_session_checkpoints to see the available ones.`);
+    }
+    if (args.checkpoint !== own) adopted.set(root, args.checkpoint);
+    return loaded(root, args.checkpoint, file, result, args.format, sessionWarnings);
   }
 
-  const { checkpoint, fromBackup, warnings } = result;
+  const file = selectorPath(root, own);
+  const result = await readCheckpoint(file);
+  if (result !== null) return loaded(root, own, file, result, args.format, sessionWarnings);
+
+  const listing = await listCheckpoints(root, session.id, DEFAULT_LIST_LIMIT);
+  if (listing.total === 0) {
+    return {
+      content: [{ type: "text", text: `No checkpoint found at ${file}. Nothing to resume; start fresh.` }],
+      structuredContent: { found: false, path: file, warnings: sessionWarnings },
+    };
+  }
+  return candidates(root, file, listing, sessionWarnings);
+}
+
+/** The "pick one" result: this session has no checkpoint, but others exist in the project. */
+function candidates(root: string, file: string, listing: Listing, sessionWarnings: string[]): CallToolResult {
+  const warnings = [...sessionWarnings, ...listing.warnings];
+  const text = [
+    `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. ` +
+      "Show this list to the user and ask which one to resume (or whether to start fresh); then call " +
+      "load_session_checkpoint with `checkpoint` set to the chosen selector. Do not choose one yourself.",
+    "",
+    renderListing(listing),
+    ...warnings.map((w) => `⚠ ${w}`),
+  ].join("\n");
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: {
+      found: false,
+      path: file,
+      candidates: listing.entries,
+      total: listing.total,
+      omitted: listing.omitted,
+      warnings,
+      // As with the brief, clients may show the model only structuredContent, so the instructions go here too.
+      text,
+    },
+  };
+}
+
+async function loaded(
+  root: string,
+  selector: string,
+  file: string,
+  result: LoadResult,
+  format: "brief" | "full",
+  sessionWarnings: string[],
+): Promise<CallToolResult> {
+  const { checkpoint, fromBackup } = result;
+  const warnings = [...sessionWarnings, ...result.warnings];
   let drift: Drift | null = null;
   if (checkpoint.git) {
     const savedHashes = new Map(
@@ -294,6 +421,7 @@ async function load(
     structuredContent: {
       found: true,
       path: file,
+      selector,
       fromBackup,
       updatedAt: checkpoint.updatedAt,
       drift,
@@ -302,6 +430,20 @@ async function load(
       // so the brief has to be here too or the model never sees it.
       ...(format === "full" ? { checkpoint } : { brief: text }),
     },
+  };
+}
+
+async function list(args: ListArgs, session: Session, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
+  const root = await resolveRoot(args.projectRoot, clientRoot);
+  const listing = await listCheckpoints(root, session.id, args.limit);
+  const warnings = [...(session.warning ? [session.warning] : []), ...listing.warnings];
+  const text =
+    listing.total === 0
+      ? `No checkpoints in ${root}.`
+      : [`${listing.total} checkpoint(s) in ${root}, newest first:`, "", renderListing(listing), ...warnings.map((w) => `⚠ ${w}`)].join("\n");
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: { path: root, entries: listing.entries, total: listing.total, omitted: listing.omitted, warnings, text },
   };
 }
 

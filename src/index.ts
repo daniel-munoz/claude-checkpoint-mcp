@@ -2,6 +2,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { GENERATOR } from "./schema.js";
 import { createServer } from "./server.js";
+import { resolveSessionId } from "./session.js";
 
 // stdout carries JSON-RPC frames; anything else written there corrupts the stream.
 // All diagnostics go to stderr, which Claude Code captures in its MCP logs.
@@ -10,7 +11,8 @@ function log(message: string): void {
 }
 
 async function main(): Promise<void> {
-  const server = createServer();
+  const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID);
+  const server = createServer({ sessionId: session.id, ...(session.warning ? { sessionWarning: session.warning } : {}) });
   const transport = new StdioServerTransport();
 
   let closing = false;
@@ -29,7 +31,7 @@ async function main(): Promise<void> {
   process.stdin.on("end", () => void shutdown("stdin closed"));
 
   await server.connect(transport);
-  log(`v${GENERATOR.version} ready on stdio (cwd: ${process.cwd()})`);
+  log(`v${GENERATOR.version} ready on stdio (cwd: ${process.cwd()}, session: ${session.id ?? "none"})`);
 }
 
 main().catch((err: unknown) => {
