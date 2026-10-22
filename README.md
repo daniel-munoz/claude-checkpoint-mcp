@@ -142,10 +142,20 @@ The server entry point is now at `dist/index.js`.
 
 ```sh
 claude plugin marketplace add daniel-munoz/claude-checkpoint-mcp
-claude plugin install claude-checkpoint-mcp@daniel-munoz
+claude plugin install session-checkpoint@daniel-munoz
 ```
 
-Restart Claude Code, then `/mcp` should show `plugin:claude-checkpoint-mcp:claude-checkpoint` as connected.
+Restart Claude Code, then `/mcp` should show `plugin:session-checkpoint:session-checkpoint` as connected.
+
+> **Upgrading from 0.2.x or earlier?** The plugin was renamed from `claude-checkpoint-mcp` to `session-checkpoint` in 0.3.0, because Claude Code reserves the `claude-` prefix for its own plugins. Uninstall the old plugin and install the new one:
+>
+> ```sh
+> claude plugin uninstall claude-checkpoint-mcp@daniel-munoz
+> claude plugin marketplace update daniel-munoz
+> claude plugin install session-checkpoint@daniel-munoz
+> ```
+>
+> The full tool names changed from `mcp__plugin_claude-checkpoint-mcp_claude-checkpoint__*` to `mcp__plugin_session-checkpoint_session-checkpoint__*`. Update any permission allowlists in `settings.json`, hooks, or instructions that use the old names. Short names such as `save_session_checkpoint` and your existing checkpoint files are unaffected.
 
 **Manual setup.** If you cloned the repo, register the server once for your user account, so it's available in every project:
 

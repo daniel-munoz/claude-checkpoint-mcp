@@ -1,8 +1,8 @@
 {
-  "name": "claude-checkpoint-mcp",
-  "displayName": "Claude Checkpoint MCP",
+  "name": "session-checkpoint",
+  "displayName": "Session Checkpoint",
   "description": "Local MCP server to save session state, surviving crashes and context limits.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "Daniel Munoz"
   },
@@ -21,7 +21,7 @@
   "supportUrl": "https://github.com/daniel-munoz/claude-checkpoint-mcp/issues",
   "privacyPolicyUrl": "https://github.com/daniel-munoz/claude-checkpoint-mcp#security--privacy",
   "mcpServers": {
-    "claude-checkpoint": {
+    "session-checkpoint": {
       "type": "stdio",
       "command": "node",
       "args": [

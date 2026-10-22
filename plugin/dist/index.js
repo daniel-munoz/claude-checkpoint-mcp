@@ -17379,7 +17379,7 @@ var NEVER2 = INVALID;
 // package.json
 var package_default = {
   name: "claude-checkpoint-mcp",
-  version: "0.2.0",
+  version: "0.3.0",
   mcpName: "io.github.tenlean/claude-checkpoint-mcp",
   description: "MCP server that checkpoints Claude Code session context to survive crashes and token limits",
   type: "module",
