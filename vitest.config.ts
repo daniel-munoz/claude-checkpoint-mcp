@@ -9,5 +9,9 @@ export default defineConfig({
       GIT_CONFIG_NOSYSTEM: "1",
       XDG_CONFIG_HOME: "/nonexistent",
     },
+    coverage: {
+      // json-summary writes coverage/coverage-summary.json, which code-review-assistant reads.
+      reporter: ["text", "html", "json-summary"],
+    },
   },
 });
