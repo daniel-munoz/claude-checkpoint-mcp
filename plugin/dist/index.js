@@ -17409,6 +17409,7 @@ var package_default = {
   },
   devDependencies: {
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.12",
     esbuild: "^0.28.2",
     typescript: "^5.9.0",
     vitest: "^4.0.0"
