@@ -11,7 +11,8 @@ export default defineConfig({
     },
     coverage: {
       // json-summary writes coverage/coverage-summary.json, which code-review-assistant reads.
-      reporter: ["text", "html", "json-summary"],
+      // No html reporter: code-review-assistant would analyze its generated .js files.
+      reporter: ["text", "json-summary"],
     },
   },
 });
