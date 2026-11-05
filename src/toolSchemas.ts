@@ -11,7 +11,7 @@ const projectRootArg = z
 const saveInput = {
   goal: z.string().min(1).max(LIMITS.goal).describe("The primary objective of the session, in one or two sentences."),
   tasks: z
-    .array(Task)
+    .array(Task.strict())
     .max(LIMITS.tasks)
     .optional()
     .describe("Sub-goals with their status. In merge mode, tasks with the same description are updated."),
@@ -31,7 +31,7 @@ const saveInput = {
     .optional()
     .describe("Key decisions, constraints, and dead ends to avoid repeating."),
   modifiedFiles: z
-    .array(z.object({ path: z.string().min(1).max(LIMITS.path), note: z.string().max(LIMITS.item).optional() }))
+    .array(z.object({ path: z.string().min(1).max(LIMITS.path), note: z.string().max(LIMITS.item).optional() }).strict())
     .max(LIMITS.modifiedFiles)
     .optional()
     .describe("Files you changed, with an optional note. Uncommitted git changes are detected automatically; list files here to annotate them or to include committed ones."),
@@ -41,7 +41,7 @@ const saveInput = {
         command: z.string().min(1).max(LIMITS.command),
         exitCode: z.number().int().optional(),
         note: z.string().max(LIMITS.item).optional(),
-      }),
+      }).strict(),
     )
     .max(LIMITS.recentCommands)
     .optional()
@@ -134,9 +134,15 @@ const loadOutput = {
   checkpoint: z.record(z.unknown()).optional(),
 };
 
-export type SaveArgs = z.infer<z.ZodObject<typeof saveInput>>;
-export type LoadArgs = z.infer<z.ZodObject<typeof loadInput>>;
-export type ListArgs = z.infer<z.ZodObject<typeof listInput>>;
+// Strict, so unknown keys are rejected as the advertised `additionalProperties: false` promises,
+// instead of being silently stripped (a misnamed field could otherwise wipe a checkpoint). See #17.
+const saveSchema = z.object(saveInput).strict();
+const loadSchema = z.object(loadInput).strict();
+const listSchema = z.object(listInput).strict();
+
+export type SaveArgs = z.infer<typeof saveSchema>;
+export type LoadArgs = z.infer<typeof loadSchema>;
+export type ListArgs = z.infer<typeof listSchema>;
 
 export const saveTool = {
   title: "Save session checkpoint",
@@ -146,7 +152,7 @@ export const saveTool = {
     "so a new session can resume after a crash, /clear, or context limit without re-exploring. " +
     "Call after finishing a milestone, before risky operations, and when the conversation is getting long. " +
     "Git branch, HEAD and uncommitted files are captured automatically.",
-  inputSchema: saveInput,
+  inputSchema: saveSchema,
   outputSchema: saveOutput,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
 };
@@ -158,7 +164,7 @@ export const loadTool = {
     "touched files and recent commands, plus which files changed since it was saved. Call at the start of a session " +
     "or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns " +
     "a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
-  inputSchema: loadInput,
+  inputSchema: loadSchema,
   outputSchema: loadOutput,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 };
@@ -169,7 +175,7 @@ export const listTool = {
     "List the checkpoints saved in the project (one per Claude Code session, plus a legacy .claude-checkpoint if present), " +
     "newest first, with each one's goal, last-saved time, branch and whether all its tasks are done. " +
     "Use it when the user wants to resume a different or older session; load one with load_session_checkpoint's `checkpoint`.",
-  inputSchema: listInput,
+  inputSchema: listSchema,
   outputSchema: listOutput,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 };

@@ -443,3 +443,72 @@ describe("list limits", () => {
     expect(data.warnings.join("\n")).not.toMatch(/tasks/);
   });
 });
+
+describe("unknown arguments", () => {
+  const original = {
+    goal: "Original goal",
+    tasks: [{ description: "keep me", status: "in_progress" }],
+    summary: "Original summary",
+    nextSteps: ["Original step"],
+  };
+
+  /** Saves a checkpoint, then returns a function that asserts the file on disk is byte-for-byte unchanged. */
+  async function seeded() {
+    const dir = tempDir();
+    await call("save_session_checkpoint", { projectRoot: dir, ...original });
+    const file = path.join(dir, ".claude-checkpoint");
+    const before = readFileSync(file, "utf8");
+    return { dir, untouched: () => expect(readFileSync(file, "utf8")).toBe(before) };
+  }
+
+  it.each([
+    ["a stray top-level key", { checkpoint: { goal: "x" } }, /'checkpoint'/],
+    ["a stray top-level key next to valid ones", { goal: "New", checkpoint: { summary: "x" } }, /'checkpoint'/],
+    ["a misnamed field in merge mode", { goal: "New", mode: "merge", sumary: "x" }, /'sumary'/],
+    ["a legacy merge flag", { goal: "New", merge: true }, /'merge'/],
+    ["an unknown key in a task", { goal: "New", tasks: [{ description: "t", status: "done", notes: "x" }] }, /'notes'.*tasks\[0\]/],
+    ["an unknown key in a modified file", { goal: "New", modifiedFiles: [{ path: "a.ts", why: "x" }] }, /'why'.*modifiedFiles\[0\]/],
+    ["an unknown key in a recent command", { goal: "New", recentCommands: [{ command: "ls", output: "x" }] }, /'output'.*recentCommands\[0\]/],
+  ])("rejects a save with %s and leaves the file untouched", async (_name, args, message) => {
+    const { dir, untouched } = await seeded();
+    const { result, text } = await call("save_session_checkpoint", { projectRoot: dir, ...args });
+    expect(result.isError).toBe(true);
+    expect(text).toMatch(/Unrecognized key/);
+    expect(text).toMatch(message);
+    untouched();
+  });
+
+  it("rejects a load with an unknown key instead of loading this session's checkpoint", async () => {
+    const { dir } = await seeded();
+    const { result, text } = await call("load_session_checkpoint", { projectRoot: dir, selector: "nope" });
+    expect(result.isError).toBe(true);
+    expect(text).toMatch(/Unrecognized key.*'selector'/);
+  });
+
+  it("rejects a list with an unknown key", async () => {
+    const { result, text } = await call("list_session_checkpoints", { projectRoot: tempDir(), max: 5 });
+    expect(result.isError).toBe(true);
+    expect(text).toMatch(/Unrecognized key.*'max'/);
+  });
+
+  it("still advertises additionalProperties: false, including on nested objects", async () => {
+    const { tools } = await client.listTools();
+    const byName = Object.fromEntries(tools.map((t) => [t.name, t.inputSchema as Record<string, any>]));
+    for (const schema of Object.values(byName)) expect(schema.additionalProperties).toBe(false);
+    const save = byName.save_session_checkpoint!;
+    for (const key of ["tasks", "modifiedFiles", "recentCommands"]) {
+      expect(save.properties[key].items.additionalProperties).toBe(false);
+    }
+  });
+
+  it("still loads checkpoint files that carry extra fields", async () => {
+    const dir = tempDir();
+    const ckpt = makeCheckpoint({ goal: { primary: "Extra fields", tasks: [{ description: "t", status: "done" }] } });
+    const withExtras = { ...ckpt, futureField: 1, goal: { ...ckpt.goal, tasks: [{ ...ckpt.goal.tasks[0], notes: "n" }] } };
+    writeFileSync(path.join(dir, ".claude-checkpoint"), JSON.stringify(withExtras));
+    const { result, data } = await call("load_session_checkpoint", { projectRoot: dir });
+    expect(result.isError).toBeFalsy();
+    expect(data.found).toBe(true);
+    expect(data.brief).toContain("Extra fields");
+  });
+});

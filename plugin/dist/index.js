@@ -4410,7 +4410,7 @@ var require_core = __commonJS({
         if (typeof this.opts.loadSchema != "function") {
           throw new Error("options.loadSchema should be a function");
         }
-        const { loadSchema } = this.opts;
+        const { loadSchema: loadSchema2 } = this.opts;
         return runCompileAsync.call(this, schema, meta);
         async function runCompileAsync(_schema, _meta) {
           await loadMetaSchema.call(this, _schema.$schema);
@@ -4450,7 +4450,7 @@ var require_core = __commonJS({
           if (p)
             return p;
           try {
-            return await (this._loading[ref] = loadSchema(ref));
+            return await (this._loading[ref] = loadSchema2(ref));
           } finally {
             delete this._loading[ref];
           }
@@ -22093,17 +22093,17 @@ var DEFAULT_LIST_LIMIT = 10;
 var projectRootArg = external_exports.string().optional().describe("Absolute path of the project. Defaults to the client's workspace root or the server's working directory.");
 var saveInput = {
   goal: external_exports.string().min(1).max(LIMITS.goal).describe("The primary objective of the session, in one or two sentences."),
-  tasks: external_exports.array(Task).max(LIMITS.tasks).optional().describe("Sub-goals with their status. In merge mode, tasks with the same description are updated."),
+  tasks: external_exports.array(Task.strict()).max(LIMITS.tasks).optional().describe("Sub-goals with their status. In merge mode, tasks with the same description are updated."),
   summary: external_exports.string().max(LIMITS.summary).optional().describe("Where things stand: what works, what is broken, what you were in the middle of."),
   nextSteps: external_exports.array(external_exports.string().max(LIMITS.item)).max(LIMITS.nextSteps).optional().describe("Concrete next actions, in order, for whoever resumes."),
   decisions: external_exports.array(external_exports.string().max(LIMITS.item)).max(LIMITS.decisions).optional().describe("Key decisions, constraints, and dead ends to avoid repeating."),
-  modifiedFiles: external_exports.array(external_exports.object({ path: external_exports.string().min(1).max(LIMITS.path), note: external_exports.string().max(LIMITS.item).optional() })).max(LIMITS.modifiedFiles).optional().describe("Files you changed, with an optional note. Uncommitted git changes are detected automatically; list files here to annotate them or to include committed ones."),
+  modifiedFiles: external_exports.array(external_exports.object({ path: external_exports.string().min(1).max(LIMITS.path), note: external_exports.string().max(LIMITS.item).optional() }).strict()).max(LIMITS.modifiedFiles).optional().describe("Files you changed, with an optional note. Uncommitted git changes are detected automatically; list files here to annotate them or to include committed ones."),
   recentCommands: external_exports.array(
     external_exports.object({
       command: external_exports.string().min(1).max(LIMITS.command),
       exitCode: external_exports.number().int().optional(),
       note: external_exports.string().max(LIMITS.item).optional()
-    })
+    }).strict()
   ).max(LIMITS.recentCommands).optional().describe("Recent significant terminal commands (builds, tests, migrations), oldest first, with exit codes and a short note on the outcome. Secrets are redacted automatically."),
   mode: external_exports.enum(["replace", "merge"]).default("replace").describe("replace: overwrite the checkpoint. merge: update the existing one, appending commands, decisions and files."),
   projectRoot: projectRootArg
@@ -22169,24 +22169,27 @@ var loadOutput = {
   text: external_exports.string().optional(),
   checkpoint: external_exports.record(external_exports.unknown()).optional()
 };
+var saveSchema = external_exports.object(saveInput).strict();
+var loadSchema = external_exports.object(loadInput).strict();
+var listSchema = external_exports.object(listInput).strict();
 var saveTool = {
   title: "Save session checkpoint",
   description: "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project (.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically.",
-  inputSchema: saveInput,
+  inputSchema: saveSchema,
   outputSchema: saveOutput,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
 };
 var loadTool = {
   title: "Load session checkpoint",
   description: "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, touched files and recent commands, plus which files changed since it was saved. Call at the start of a session or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
-  inputSchema: loadInput,
+  inputSchema: loadSchema,
   outputSchema: loadOutput,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 };
 var listTool = {
   title: "List session checkpoints",
   description: "List the checkpoints saved in the project (one per Claude Code session, plus a legacy .claude-checkpoint if present), newest first, with each one's goal, last-saved time, branch and whether all its tasks are done. Use it when the user wants to resume a different or older session; load one with load_session_checkpoint's `checkpoint`.",
-  inputSchema: listInput,
+  inputSchema: listSchema,
   outputSchema: listOutput,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 };
