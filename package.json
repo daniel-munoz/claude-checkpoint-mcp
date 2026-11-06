@@ -1,11 +1,20 @@
 {
-  "name": "claude-checkpoint-mcp",
-  "version": "0.3.0",
-  "mcpName": "io.github.tenlean/claude-checkpoint-mcp",
+  "name": "session-checkpoint-mcp",
+  "version": "0.3.1",
+  "mcpName": "io.github.daniel-munoz/claude-checkpoint-mcp",
   "description": "MCP server that checkpoints Claude Code session context to survive crashes and token limits",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daniel-munoz/claude-checkpoint-mcp.git"
+  },
+  "homepage": "https://github.com/daniel-munoz/claude-checkpoint-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/daniel-munoz/claude-checkpoint-mcp/issues"
+  },
+  "author": "Daniel Munoz",
   "type": "module",
   "bin": {
-    "claude-checkpoint-mcp": "dist/index.js"
+    "session-checkpoint-mcp": "dist/index.js"
   },
   "main": "dist/index.js",
   "files": [

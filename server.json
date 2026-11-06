@@ -1,24 +1,31 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.tenlean/claude-checkpoint-mcp",
+  "name": "io.github.daniel-munoz/claude-checkpoint-mcp",
   "description": "MCP server that checkpoints Claude Code session context to survive crashes and token limits",
   "repository": {
-    "url": "https://github.com/tenlean/claude-checkpoint-mcp",
+    "url": "https://github.com/daniel-munoz/claude-checkpoint-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.3.1",
   "packages": [
     {
       "registryType": "npm",
-      "identifier": "claude-checkpoint-mcp",
-      "version": "0.1.0",
+      "identifier": "session-checkpoint-mcp",
+      "version": "0.3.1",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "CHECKPOINT_PROJECT_ROOT",
-          "description": "Absolute path of the default project to checkpoint (useful for clients without a current project, e.g. Claude Desktop).",
+          "description": "Optional. Absolute path of the default project to checkpoint, used when the client has no current project (e.g. Claude Desktop). A projectRoot argument on a tool call takes precedence.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        },
+        {
+          "name": "CLAUDE_CODE_SESSION_ID",
+          "description": "Set automatically by Claude Code; do not set it yourself. Selects the per-session checkpoint file (.claude-checkpoints/<session-id>.json). Without it the server uses the shared .claude-checkpoint file.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
