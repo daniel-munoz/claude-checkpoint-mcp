@@ -5,10 +5,10 @@
 # Both steps are idempotent, so a failed release can be finished by running this workflow by hand
 # (Actions → Publish → Run workflow, with the tag): a version already on npm is skipped.
 #
-# npm auth: set the NPM_TOKEN secret (needed for the first publish, since npm trusted publishing
-# can only be configured once the package exists). Once trusted publishing is set up on
-# npmjs.com for this repo and workflow, the secret can be removed and npm will use OIDC.
-# MCP registry auth: GitHub OIDC, which proves this workflow runs in daniel-munoz/... (no secret).
+# Auth uses GitHub OIDC throughout, so no secrets are needed:
+#   - npm: trusted publishing, configured on npmjs.com for this repo, publish.yml and the
+#     `release` environment, with `npm publish` allowed.
+#   - MCP registry: mcp-publisher's github-oidc login, which proves this runs in daniel-munoz/...
 
 name: Publish
 
@@ -24,7 +24,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # npm provenance / trusted publishing, and mcp-publisher github-oidc login
+  id-token: write   # npm trusted publishing + provenance, and mcp-publisher github-oidc login
 
 env:
   MCP_PUBLISHER_VERSION: v1.8.7
@@ -77,8 +77,6 @@ jobs:
     - name: Publish to npm
       if: steps.npm.outputs.published != 'true'
       run: npm publish --provenance --access public
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     - name: Install mcp-publisher
       run: |
