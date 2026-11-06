@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { chmod, copyFile, mkdir, open, realpath, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CHECKPOINT_FILENAME, MAX_FILE_BYTES, MAX_READ_BYTES, MAX_READ_KB, parseCheckpoint, type Checkpoint } from "./schema.js";
+import { BYTES_PER_KB, CHECKPOINT_FILENAME, MAX_FILE_BYTES, MAX_READ_BYTES, MAX_READ_KB, parseCheckpoint, type Checkpoint } from "./schema.js";
 import { LEGACY_SELECTOR, SESSION_ID_PATTERN } from "./session.js";
 
 export const BACKUP_SUFFIX = ".prev";
@@ -83,7 +83,7 @@ async function readParsed(file: string): Promise<Checkpoint | "missing" | Error>
     try {
       const { size } = await handle.stat();
       if (size > MAX_READ_BYTES) {
-        return new Error(`file is ${Math.ceil(size / 1024)} KB, which exceeds ${MAX_READ_KB} KB; not reading it`);
+        return new Error(`file is ${Math.ceil(size / BYTES_PER_KB)} KB, which exceeds ${MAX_READ_KB} KB; not reading it`);
       }
       text = await handle.readFile("utf8");
     } finally {

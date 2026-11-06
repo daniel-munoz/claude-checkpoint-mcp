@@ -28606,10 +28606,11 @@ var package_default = {
 var GENERATOR = { name: package_default.name, version: package_default.version };
 var CHECKPOINT_VERSION = 1;
 var CHECKPOINT_FILENAME = ".claude-checkpoint";
+var BYTES_PER_KB = 1024;
 var MAX_FILE_KB = 64;
-var MAX_FILE_BYTES = MAX_FILE_KB * 1024;
+var MAX_FILE_BYTES = MAX_FILE_KB * BYTES_PER_KB;
 var MAX_READ_KB = 1024;
-var MAX_READ_BYTES = MAX_READ_KB * 1024;
+var MAX_READ_BYTES = MAX_READ_KB * BYTES_PER_KB;
 var LIMITS = {
   goal: 500,
   summary: 4e3,
@@ -36969,7 +36970,7 @@ async function readParsed(file2) {
     try {
       const { size } = await handle.stat();
       if (size > MAX_READ_BYTES) {
-        return new Error(`file is ${Math.ceil(size / 1024)} KB, which exceeds ${MAX_READ_KB} KB; not reading it`);
+        return new Error(`file is ${Math.ceil(size / BYTES_PER_KB)} KB, which exceeds ${MAX_READ_KB} KB; not reading it`);
       }
       text = await handle.readFile("utf8");
     } finally {

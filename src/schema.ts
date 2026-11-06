@@ -5,12 +5,13 @@ import pkg from "../package.json" with { type: "json" };
 export const GENERATOR = { name: pkg.name, version: pkg.version } as const;
 export const CHECKPOINT_VERSION = 1;
 export const CHECKPOINT_FILENAME = ".claude-checkpoint";
+export const BYTES_PER_KB = 1024;
 export const MAX_FILE_KB = 64;
-export const MAX_FILE_BYTES = MAX_FILE_KB * 1024;
+export const MAX_FILE_BYTES = MAX_FILE_KB * BYTES_PER_KB;
 // Files larger than this are rejected unread. Saves stay under MAX_FILE_BYTES, so only a hand-edited
 // or crafted file (e.g. one committed to a repo) gets this far; it bounds parse and validation memory.
 export const MAX_READ_KB = 1024;
-export const MAX_READ_BYTES = MAX_READ_KB * 1024;
+export const MAX_READ_BYTES = MAX_READ_KB * BYTES_PER_KB;
 
 export const LIMITS = {
   goal: 500,
