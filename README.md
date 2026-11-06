@@ -29,6 +29,7 @@ Fork of [tenlean/claude-checkpoint-mcp](https://github.com/tenlean/claude-checkp
 - [How it works](#how-it-works)
 - [Installation](#installation)
 - [Configuration](#configuration)
+  - [Environment variables](#environment-variables)
   - [Claude Code](#claude-code)
   - [Claude Desktop](#claude-desktop-claude_desktop_configjson)
   - [Other MCP clients](#other-mcp-clients)
@@ -132,9 +133,24 @@ npm run build
 
 The server entry point is now at `dist/index.js`.
 
+**From npm.** The server is also published as [`session-checkpoint-mcp`](https://www.npmjs.com/package/session-checkpoint-mcp). In any of the configurations below, you can replace `node /absolute/path/to/claude-checkpoint-mcp/dist/index.js` with `npx -y session-checkpoint-mcp`:
+
+```sh
+claude mcp add --scope user checkpoint -- npx -y session-checkpoint-mcp
+```
+
+(The npm package `claude-checkpoint-mcp` is the upstream project's 0.1.0 release, not this fork.)
+
 ---
 
 ## Configuration
+
+### Environment variables
+
+| Variable | Set by | Required | Default | What it does |
+|---|---|---|---|---|
+| `CHECKPOINT_PROJECT_ROOT` | You (optional) | No | Unset: the client's root, then the server's working directory | Absolute path of the default project to checkpoint. Use it for clients with no current project, such as Claude Desktop. A `projectRoot` argument on a tool call takes precedence. |
+| `CLAUDE_CODE_SESSION_ID` | Claude Code, automatically | No | Unset: one shared `.claude-checkpoint` file | Picks this session's checkpoint file, `.claude-checkpoints/<session-id>.json`. You don't set it. See [one checkpoint per session](#one-checkpoint-per-session). |
 
 ### Claude Code
 
@@ -228,6 +244,8 @@ Any MCP client that supports the stdio transport can run the server:
 
 ```sh
 node /absolute/path/to/claude-checkpoint-mcp/dist/index.js
+# or
+npx -y session-checkpoint-mcp
 ```
 
 ---
@@ -487,7 +505,7 @@ Each one is plain, versioned JSON, so it's easy to read, diff, or edit by hand. 
   "id": "ee5507c0-855e-44a5-85c1-d97b767537c9",
   "createdAt": "2026-10-08T02:23:55.477Z",
   "updatedAt": "2026-10-08T02:23:55.477Z",
-  "generator": { "name": "claude-checkpoint-mcp", "version": "0.1.0" },
+  "generator": { "name": "session-checkpoint-mcp", "version": "0.3.1" },
   "project": { "name": "my-app" },
   "git": {
     "branch": "feat/github-oauth",
@@ -566,7 +584,7 @@ Paths are always relative to the project root. The file never stores absolute pa
 | Symptom | Fix |
 |---|---|
 | `checkpoint` doesn't appear in `/mcp` | Run `claude mcp list` and check that the path is absolute and `dist/index.js` exists (`npm run build`). |
-| Checkpoint is written to the wrong directory | The server fell back to its working directory. Pass `projectRoot`, or set `CHECKPOINT_PROJECT_ROOT`. |
+| Checkpoint is written to the wrong directory | The server fell back to its working directory. Pass `projectRoot` on the call, or set the [`CHECKPOINT_PROJECT_ROOT`](#environment-variables) environment variable. |
 | `projectRoot must be an absolute path` | Use a full path such as `/home/me/code/app`, not `./app`. |
 | Brief says "Saved commit … is no longer reachable" | The branch was rebased or reset after the save. Drift can't be computed against history, so treat the flagged files as needing a re-read. |
 | Warning: "not git-ignored" | Add `.claude-checkpoint*` to `.gitignore`. |
@@ -598,6 +616,10 @@ src/
 ├── redact.ts   # secret scrubbing
 └── render.ts   # checkpoint → markdown resume brief
 ```
+
+### Releasing
+
+The version lives in `package.json`, `server.json` (twice), `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. `test/metadata.test.ts` fails if they disagree. Bump them all, run `npm run build`, commit, then push a `vX.Y.Z` tag. The [Publish workflow](.github/workflows/publish.yml) publishes `session-checkpoint-mcp` to npm and `server.json` to the MCP registry as `io.github.daniel-munoz/claude-checkpoint-mcp`.
 
 Built with the official [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) and [zod](https://zod.dev).
 
