@@ -1,0 +1,69 @@
+# Publishes a release when a v* tag is pushed:
+#   1. npm: the `session-checkpoint-mcp` package, with provenance.
+#   2. MCP registry: server.json as io.github.daniel-munoz/claude-checkpoint-mcp.
+#
+# npm auth: set the NPM_TOKEN repo secret (needed for the first publish, since npm trusted
+# publishing can only be configured once the package exists). Once trusted publishing is set up on
+# npmjs.com for this repo and workflow, the secret can be removed and npm will use OIDC.
+# MCP registry auth: GitHub OIDC, which proves this workflow runs in daniel-munoz/... (no secret).
+
+name: Publish
+
+on:
+  push:
+    tags: [ "v*" ]
+
+permissions:
+  contents: read
+  id-token: write   # npm provenance / trusted publishing, and mcp-publisher github-oidc login
+
+env:
+  MCP_PUBLISHER_VERSION: v1.8.7
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+        registry-url: https://registry.npmjs.org
+
+    - name: Check tag matches package version
+      run: |
+        version="$(node -p 'require("./package.json").version')"
+        if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+          echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+          exit 1
+        fi
+
+    - name: Install
+      run: npm ci
+
+    # prepublishOnly runs typecheck, tests (including the metadata sync test) and build.
+    - name: Publish to npm
+      run: npm publish --provenance --access public
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    - name: Install mcp-publisher
+      run: |
+        curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+          | tar xz mcp-publisher
+
+    # The registry checks that the npm package's mcpName matches server.json's name, and npm can
+    # take a moment to serve a new version, so retry briefly.
+    - name: Publish to MCP registry
+      run: |
+        ./mcp-publisher login github-oidc
+        for attempt in 1 2 3 4 5; do
+          ./mcp-publisher publish && exit 0
+          echo "attempt ${attempt} failed; retrying in 30s"
+          sleep 30
+        done
+        exit 1
