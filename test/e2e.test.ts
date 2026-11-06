@@ -462,13 +462,13 @@ describe("unknown arguments", () => {
   }
 
   it.each([
-    ["a stray top-level key", { checkpoint: { goal: "x" } }, /'checkpoint'/],
-    ["a stray top-level key next to valid ones", { goal: "New", checkpoint: { summary: "x" } }, /'checkpoint'/],
-    ["a misnamed field in merge mode", { goal: "New", mode: "merge", sumary: "x" }, /'sumary'/],
-    ["a legacy merge flag", { goal: "New", merge: true }, /'merge'/],
-    ["an unknown key in a task", { goal: "New", tasks: [{ description: "t", status: "done", notes: "x" }] }, /'notes'.*tasks\[0\]/],
-    ["an unknown key in a modified file", { goal: "New", modifiedFiles: [{ path: "a.ts", why: "x" }] }, /'why'.*modifiedFiles\[0\]/],
-    ["an unknown key in a recent command", { goal: "New", recentCommands: [{ command: "ls", output: "x" }] }, /'output'.*recentCommands\[0\]/],
+    ["a stray top-level key", { checkpoint: { goal: "x" } }, /"checkpoint"/],
+    ["a stray top-level key next to valid ones", { goal: "New", checkpoint: { summary: "x" } }, /"checkpoint"/],
+    ["a misnamed field in merge mode", { goal: "New", mode: "merge", sumary: "x" }, /"sumary"/],
+    ["a legacy merge flag", { goal: "New", merge: true }, /"merge"/],
+    ["an unknown key in a task", { goal: "New", tasks: [{ description: "t", status: "done", notes: "x" }] }, /"notes".*tasks\[0\]/],
+    ["an unknown key in a modified file", { goal: "New", modifiedFiles: [{ path: "a.ts", why: "x" }] }, /"why".*modifiedFiles\[0\]/],
+    ["an unknown key in a recent command", { goal: "New", recentCommands: [{ command: "ls", output: "x" }] }, /"output".*recentCommands\[0\]/],
   ])("rejects a save with %s and leaves the file untouched", async (_name, args, message) => {
     const { dir, untouched } = await seeded();
     const { result, text } = await call("save_session_checkpoint", { projectRoot: dir, ...args });
@@ -482,13 +482,13 @@ describe("unknown arguments", () => {
     const { dir } = await seeded();
     const { result, text } = await call("load_session_checkpoint", { projectRoot: dir, selector: "nope" });
     expect(result.isError).toBe(true);
-    expect(text).toMatch(/Unrecognized key.*'selector'/);
+    expect(text).toMatch(/Unrecognized key.*"selector"/);
   });
 
   it("rejects a list with an unknown key", async () => {
     const { result, text } = await call("list_session_checkpoints", { projectRoot: tempDir(), max: 5 });
     expect(result.isError).toBe(true);
-    expect(text).toMatch(/Unrecognized key.*'max'/);
+    expect(text).toMatch(/Unrecognized key.*"max"/);
   });
 
   it("still advertises additionalProperties: false, including on nested objects", async () => {

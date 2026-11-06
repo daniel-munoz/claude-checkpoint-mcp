@@ -1,7 +1,7 @@
 import { readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { MAX_FILE_BYTES } from "../src/schema.js";
+import { MAX_FILE_BYTES, MAX_READ_BYTES } from "../src/schema.js";
 import {
   backupPath,
   CheckpointError,
@@ -104,6 +104,24 @@ describe("write/read", () => {
     writeFileSync(checkpointPath(dir), "garbage");
     await writeCheckpoint(checkpointPath(dir), makeCheckpoint({ summary: "third" }));
     expect(JSON.parse(readFileSync(backupPath(checkpointPath(dir)), "utf8")).summary).toBe("first");
+  });
+
+  it("rejects an oversized file by size alone, before parsing it", async () => {
+    const file = checkpointPath(tempDir());
+    // A valid checkpoint plus padding: it would parse if read, so only the size cap can reject it.
+    const padded = { ...makeCheckpoint(), padding: "x".repeat(MAX_READ_BYTES) };
+    writeFileSync(file, JSON.stringify(padded));
+    await expect(readCheckpoint(file)).rejects.toThrow(/exceeds 1024 KB/);
+  });
+
+  it("falls back to .prev when the primary is oversized", async () => {
+    const file = checkpointPath(tempDir());
+    writeFileSync(backupPath(file), serialize(makeCheckpoint({ summary: "good" })));
+    writeFileSync(file, " ".repeat(MAX_READ_BYTES + 1));
+    const loaded = await readCheckpoint(file);
+    expect(loaded?.fromBackup).toBe(true);
+    expect(loaded?.checkpoint.summary).toBe("good");
+    expect(loaded?.warnings[0]).toMatch(/exceeds 1024 KB/);
   });
 
   it("throws a CheckpointError when both files are unreadable", async () => {

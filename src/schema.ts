@@ -7,6 +7,10 @@ export const CHECKPOINT_VERSION = 1;
 export const CHECKPOINT_FILENAME = ".claude-checkpoint";
 export const MAX_FILE_KB = 64;
 export const MAX_FILE_BYTES = MAX_FILE_KB * 1024;
+// Files larger than this are rejected unread. Saves stay under MAX_FILE_BYTES, so only a hand-edited
+// or crafted file (e.g. one committed to a repo) gets this far; it bounds parse and validation memory.
+export const MAX_READ_KB = 1024;
+export const MAX_READ_BYTES = MAX_READ_KB * 1024;
 
 export const LIMITS = {
   goal: 500,
@@ -42,7 +46,7 @@ export const RecentCommand = z.object({
   command: z.string().min(1).max(LIMITS.command),
   exitCode: z.number().int().optional(),
   note: z.string().max(LIMITS.item).optional(),
-  at: z.string().datetime(),
+  at: z.iso.datetime(),
 });
 
 export const GitState = z.object({
@@ -53,9 +57,9 @@ export const GitState = z.object({
 
 export const Checkpoint = z.object({
   version: z.literal(CHECKPOINT_VERSION),
-  id: z.string().uuid(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+  id: z.guid(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
   generator: z.object({ name: z.string(), version: z.string() }),
   project: z.object({ name: z.string() }),
   // The Claude Code session that owns this checkpoint, and the selector it was resumed from.

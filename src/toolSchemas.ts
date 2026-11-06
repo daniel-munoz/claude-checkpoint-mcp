@@ -11,7 +11,7 @@ const projectRootArg = z
 const saveInput = {
   goal: z.string().min(1).max(LIMITS.goal).describe("The primary objective of the session, in one or two sentences."),
   tasks: z
-    .array(Task.strict())
+    .array(z.strictObject(Task.shape))
     .max(LIMITS.tasks)
     .optional()
     .describe("Sub-goals with their status. In merge mode, tasks with the same description are updated."),
@@ -31,17 +31,17 @@ const saveInput = {
     .optional()
     .describe("Key decisions, constraints, and dead ends to avoid repeating."),
   modifiedFiles: z
-    .array(z.object({ path: z.string().min(1).max(LIMITS.path), note: z.string().max(LIMITS.item).optional() }).strict())
+    .array(z.strictObject({ path: z.string().min(1).max(LIMITS.path), note: z.string().max(LIMITS.item).optional() }))
     .max(LIMITS.modifiedFiles)
     .optional()
     .describe("Files you changed, with an optional note. Uncommitted git changes are detected automatically; list files here to annotate them or to include committed ones."),
   recentCommands: z
     .array(
-      z.object({
+      z.strictObject({
         command: z.string().min(1).max(LIMITS.command),
         exitCode: z.number().int().optional(),
         note: z.string().max(LIMITS.item).optional(),
-      }).strict(),
+      }),
     )
     .max(LIMITS.recentCommands)
     .optional()
@@ -131,14 +131,14 @@ const loadOutput = {
   warnings: z.array(z.string()),
   brief: z.string().optional(),
   text: z.string().optional(),
-  checkpoint: z.record(z.unknown()).optional(),
+  checkpoint: z.record(z.string(), z.unknown()).optional(),
 };
 
 // Strict, so unknown keys are rejected as the advertised `additionalProperties: false` promises,
 // instead of being silently stripped (a misnamed field could otherwise wipe a checkpoint). See #17.
-const saveSchema = z.object(saveInput).strict();
-const loadSchema = z.object(loadInput).strict();
-const listSchema = z.object(listInput).strict();
+const saveSchema = z.strictObject(saveInput);
+const loadSchema = z.strictObject(loadInput);
+const listSchema = z.strictObject(listInput);
 
 export type SaveArgs = z.infer<typeof saveSchema>;
 export type LoadArgs = z.infer<typeof loadSchema>;
