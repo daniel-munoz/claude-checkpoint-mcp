@@ -2,7 +2,7 @@
   "name": "session-checkpoint",
   "displayName": "Session Checkpoint",
   "description": "Local MCP server to save session state, surviving crashes and context limits.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": {
     "name": "Daniel Munoz"
   },

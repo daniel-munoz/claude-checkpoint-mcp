@@ -505,7 +505,7 @@ Each one is plain, versioned JSON, so it's easy to read, diff, or edit by hand. 
   "id": "ee5507c0-855e-44a5-85c1-d97b767537c9",
   "createdAt": "2026-10-08T02:23:55.477Z",
   "updatedAt": "2026-10-08T02:23:55.477Z",
-  "generator": { "name": "session-checkpoint-mcp", "version": "0.3.1" },
+  "generator": { "name": "session-checkpoint-mcp", "version": "0.3.2" },
   "project": { "name": "my-app" },
   "git": {
     "branch": "feat/github-oauth",
