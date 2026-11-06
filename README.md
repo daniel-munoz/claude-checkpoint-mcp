@@ -621,6 +621,8 @@ src/
 
 The version lives in `package.json`, `server.json` (twice), `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. `test/metadata.test.ts` fails if they disagree. Bump them all, run `npm run build`, commit, then push a `vX.Y.Z` tag. The [Publish workflow](.github/workflows/publish.yml) publishes `session-checkpoint-mcp` to npm and `server.json` to the MCP registry as `io.github.daniel-munoz/claude-checkpoint-mcp`.
 
+If a release fails partway, don't re-run the failed job. Run the workflow again from **Actions → Publish → Run workflow** with the tag instead. Steps that already succeeded are skipped.
+
 Built with the official [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk) and [zod](https://zod.dev).
 
 ## License
