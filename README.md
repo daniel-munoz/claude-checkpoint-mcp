@@ -125,15 +125,15 @@ The session id an MCP server sees is the one it was started with:
 Requirements: **Node.js 20+** and **git**. Git is optional, but without it you lose drift detection.
 
 ```sh
-git clone https://github.com/daniel-munoz/claude-checkpoint-mcp.git session-checkpoint-mcp
-cd session-checkpoint-mcp
+git clone https://github.com/daniel-munoz/claude-checkpoint-mcp.git
+cd claude-checkpoint-mcp
 npm install
 npm run build
 ```
 
 The server entry point is now at `dist/index.js`.
 
-**From npm.** The server is also published as [`session-checkpoint-mcp`](https://www.npmjs.com/package/session-checkpoint-mcp). In any of the configurations below, you can replace `node /absolute/path/to/session-checkpoint-mcp/dist/index.js` with `npx -y session-checkpoint-mcp`:
+**From npm.** The server is also published as [`session-checkpoint-mcp`](https://www.npmjs.com/package/session-checkpoint-mcp). In any of the configurations below, you can replace `node /absolute/path/to/claude-checkpoint-mcp/dist/index.js` with `npx -y session-checkpoint-mcp`:
 
 ```sh
 claude mcp add --scope user checkpoint -- npx -y session-checkpoint-mcp
@@ -176,7 +176,7 @@ Restart Claude Code, then `/mcp` should show `plugin:session-checkpoint:session-
 **Manual setup.** If you cloned the repo, register the server once for your user account, so it's available in every project:
 
 ```sh
-# Run from the session-checkpoint-mcp directory
+# Run from the claude-checkpoint-mcp directory
 claude mcp add --scope user checkpoint -- node "$PWD/dist/index.js"
 ```
 
@@ -197,7 +197,7 @@ Inside a session, `/mcp` should show `checkpoint` as connected.
   "mcpServers": {
     "checkpoint": {
       "command": "node",
-      "args": ["/absolute/path/to/session-checkpoint-mcp/dist/index.js"]
+      "args": ["/absolute/path/to/claude-checkpoint-mcp/dist/index.js"]
     }
   }
 }
@@ -225,7 +225,7 @@ Add the server under `mcpServers`, using the absolute path to your local build:
   "mcpServers": {
     "checkpoint": {
       "command": "node",
-      "args": ["/absolute/path/to/session-checkpoint-mcp/dist/index.js"],
+      "args": ["/absolute/path/to/claude-checkpoint-mcp/dist/index.js"],
       "env": {
         "CHECKPOINT_PROJECT_ROOT": "/absolute/path/to/your/project"
       }
@@ -243,7 +243,7 @@ Restart Claude Desktop after saving the file.
 Any MCP client that supports the stdio transport can run the server:
 
 ```sh
-node /absolute/path/to/session-checkpoint-mcp/dist/index.js
+node /absolute/path/to/claude-checkpoint-mcp/dist/index.js
 # or
 npx -y session-checkpoint-mcp
 ```
