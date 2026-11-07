@@ -8,6 +8,7 @@
 [![Node.js ≥ 20](https://img.shields.io/badge/node-%E2%89%A520-339933.svg)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-stdio-8A2BE2.svg)](https://modelcontextprotocol.io)
 [![M8ven Score](https://m8ven.ai/badge/mcp/daniel-munoz/claude-checkpoint-mcp)](https://m8ven.ai/mcp/daniel-munoz/claude-checkpoint-mcp?s=readme)
+[![Session Checkpoint MCP on mcprush](https://mcprush.com/badge/daniel-munoz-claude-checkpoint-mcp/score.svg)](https://mcprush.com/to/daniel-munoz-claude-checkpoint-mcp?ref=badge)
 
 `session-checkpoint-mcp` is a local [Model Context Protocol](https://modelcontextprotocol.io) server with three tools:
 
