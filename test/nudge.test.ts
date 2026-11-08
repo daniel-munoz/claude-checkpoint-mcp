@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -19,11 +19,14 @@ afterEach(async () => {
   await Promise.all(clients.splice(0).map((c) => c.close()));
 });
 
-function writeSlot(root: string, selector: string, updatedAt = "2026-10-08T12:00:00.000Z"): void {
-  const file = selectorPath(root, selector);
+/** Writes a checkpoint file last modified at `savedAt`; the nudge goes by mtime, not content. */
+function writeFile(file: string, savedAt = "2026-10-08T12:00:00.000Z"): void {
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, serialize(makeCheckpoint({ updatedAt })));
+  writeFileSync(file, serialize(makeCheckpoint({ updatedAt: savedAt })));
+  utimesSync(file, new Date(savedAt), new Date(savedAt));
 }
+
+const writeSlot = (root: string, selector: string, savedAt?: string) => writeFile(selectorPath(root, selector), savedAt);
 
 /** A server connected to a client whose only root is `dir`, as Claude Code started in `dir` would be. */
 async function serverStartedIn(dir: string): Promise<Client> {
@@ -49,7 +52,7 @@ describe("nudge", () => {
 
   it("reports the legacy file", async () => {
     const dir = tempDir();
-    writeFileSync(checkpointPath(dir), serialize(makeCheckpoint()));
+    writeFile(checkpointPath(dir));
     const message = await nudge({ cwd: dir }, {}, NOW);
     expect(message).toContain(`A session checkpoint exists in ${dir} (latest saved 5m ago)`);
     expect(message).toContain("Call load_session_checkpoint");
@@ -60,6 +63,23 @@ describe("nudge", () => {
     writeSlot(dir, "aaa", "2026-10-08T10:00:00.000Z");
     writeSlot(dir, "bbb", "2026-10-08T12:04:00.000Z");
     expect(await nudge({ cwd: dir }, {}, NOW)).toContain(`2 session checkpoints exist in ${dir} (latest saved 1m ago)`);
+  });
+
+  it("counts a checkpoint and its backup once, and ignores other files", async () => {
+    const dir = tempDir();
+    writeSlot(dir, "aaa", "2026-10-08T11:00:00.000Z");
+    writeFile(selectorPath(dir, "aaa") + ".prev", "2026-10-08T12:03:00.000Z");
+    writeFile(checkpointPath(dir) + ".prev", "2026-10-08T09:00:00.000Z");
+    writeFile(path.join(dir, ".claude-checkpoints", "notes.txt"));
+    writeFile(path.join(dir, ".claude-checkpoints", "legacy.json"));
+    writeFile(path.join(dir, ".claude-checkpoints", "bad name.json"));
+    expect(await nudge({ cwd: dir }, {}, NOW)).toContain(`2 session checkpoints exist in ${dir} (latest saved 2m ago)`);
+  });
+
+  it("ignores a slots path that isn't a directory", async () => {
+    const dir = tempDir();
+    writeFileSync(path.join(dir, ".claude-checkpoints"), "");
+    expect(await nudge({ cwd: dir }, {}, NOW)).toBeNull();
   });
 
   it("prefers CLAUDE_PROJECT_DIR over the input cwd", async () => {
@@ -127,6 +147,10 @@ describe("built hook", () => {
   const hook = path.resolve("plugin/dist/hook.js");
   const run = (input: string, env: NodeJS.ProcessEnv = {}) =>
     execFileSync(process.execPath, [hook], { input, encoding: "utf8", env: { PATH: process.env.PATH, ...env } });
+
+  it.skipIf(!existsSync(hook))("stays small: no zod or server code in the bundle", () => {
+    expect(statSync(hook).size).toBeLessThan(20 * 1024);
+  });
 
   it.skipIf(!existsSync(hook))("prints nothing without checkpoints and JSON with them", () => {
     const dir = tempDir();

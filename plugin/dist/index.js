@@ -3262,8 +3262,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path4) {
-      let input2 = path4;
+    function removeDotSegments(path5) {
+      let input2 = path5;
       const output2 = [];
       let nextSlash = -1;
       let len = 0;
@@ -3337,11 +3337,11 @@ var require_utils = __commonJS({
       }
       return output2.join("");
     }
-    function removeDotSegmentsRelative(path4) {
-      if (path4 === "" || path4[0] === "/") {
-        return removeDotSegments(path4);
+    function removeDotSegmentsRelative(path5) {
+      if (path5 === "" || path5[0] === "/") {
+        return removeDotSegments(path5);
       }
-      const segments = path4.split("/");
+      const segments = path5.split("/");
       const last = segments.length - 1;
       const output2 = [];
       let trailingDirectory = false;
@@ -3704,8 +3704,8 @@ var require_schemes = __commonJS({
       }
       if (wsComponent.resourceName) {
         const queryIndex = wsComponent.resourceName.indexOf("?");
-        const path4 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
-        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
+        const path5 = queryIndex === -1 ? wsComponent.resourceName : wsComponent.resourceName.slice(0, queryIndex);
+        wsComponent.path = path5 && path5 !== "/" ? path5 : void 0;
         wsComponent.query = queryIndex === -1 ? void 0 : wsComponent.resourceName.slice(queryIndex + 1);
         wsComponent.resourceName = void 0;
       }
@@ -8075,10 +8075,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path4) {
-  if (!path4)
+function getElementAtPath(obj, path5) {
+  if (!path5)
     return obj;
-  return path4.reduce((acc, key) => acc?.[key], obj);
+  return path5.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -8418,11 +8418,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path4, issues) {
+function prefixIssues(path5, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path4);
+    iss.path.unshift(path5);
     return iss;
   });
 }
@@ -8884,16 +8884,16 @@ function flattenError(error62, mapper = (issue2) => issue2.message) {
 }
 function formatError(error62, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error63, path4 = []) => {
+  const processError = (error63, path5 = []) => {
     for (const issue2 of error63.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path4, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else {
-        const fullpath = [...path4, ...issue2.path];
+        const fullpath = [...path5, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -8932,17 +8932,17 @@ function formatError(error62, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error62, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error63, path4 = []) => {
+  const processError = (error63, path5 = []) => {
     var _a3;
     for (const issue2 of error63.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path4, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path4, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
       } else {
-        const fullpath = [...path4, ...issue2.path];
+        const fullpath = [...path5, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -8981,8 +8981,8 @@ function treeifyError(error62, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path4 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path4) {
+  const path5 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path5) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -26120,13 +26120,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path4 = ref.slice(1).split("/").filter(Boolean);
-  if (path4.length === 0) {
+  const path5 = ref.slice(1).split("/").filter(Boolean);
+  if (path5.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path4[0] === defsKey) {
-    const key = path4[1] === void 0 ? void 0 : decodeJSONPointerSegment(path4[1]);
+  if (path5[0] === defsKey) {
+    const key = path5[1] === void 0 ? void 0 : decodeJSONPointerSegment(path5[1]);
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -28667,10 +28667,35 @@ var package_default = {
   license: "MIT"
 };
 
+// src/paths.ts
+import { realpath, stat } from "node:fs/promises";
+import path from "node:path";
+var CHECKPOINT_FILENAME = ".claude-checkpoint";
+var SLOTS_DIRNAME = ".claude-checkpoints";
+var BACKUP_SUFFIX = ".prev";
+var CheckpointError = class extends Error {
+  name = "CheckpointError";
+};
+async function resolveRoot(explicit, clientRoot, envRoot = process.env.CHECKPOINT_PROJECT_ROOT) {
+  const candidate = explicit ?? (envRoot || void 0) ?? await clientRoot().catch(() => void 0) ?? process.cwd();
+  if (!path.isAbsolute(candidate)) {
+    throw new CheckpointError(`projectRoot must be an absolute path, got: ${candidate}`);
+  }
+  let resolved;
+  try {
+    resolved = await realpath(candidate);
+  } catch {
+    throw new CheckpointError(`projectRoot does not exist: ${candidate}`);
+  }
+  if (!(await stat(resolved)).isDirectory()) {
+    throw new CheckpointError(`projectRoot is not a directory: ${candidate}`);
+  }
+  return resolved;
+}
+
 // src/schema.ts
 var GENERATOR = { name: package_default.name, version: package_default.version };
 var CHECKPOINT_VERSION = 1;
-var CHECKPOINT_FILENAME = ".claude-checkpoint";
 var BYTES_PER_KB = 1024;
 var MAX_FILE_KB = 64;
 var MAX_FILE_BYTES = MAX_FILE_KB * BYTES_PER_KB;
@@ -29124,8 +29149,8 @@ function getErrorMap2() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path4, errorMaps, issueData } = params;
-  const fullPath = [...path4, ...issueData.path || []];
+  const { data, path: path5, errorMaps, issueData } = params;
+  const fullPath = [...path5, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -29240,11 +29265,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path4, key) {
+  constructor(parent, value, path5, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path4;
+    this._path = path5;
     this._key = key;
   }
   get path() {
@@ -32795,11 +32820,11 @@ function normalizeObjectSchema(schema) {
   }
   return void 0;
 }
-function getDotPath(path4) {
-  if (path4.length === 0) {
+function getDotPath(path5) {
+  if (path5.length === 0) {
     return "object root";
   }
-  return path4.reduce((acc, seg, index) => {
+  return path5.reduce((acc, seg, index) => {
     if (index === 0) {
       return String(seg);
     }
@@ -36796,7 +36821,7 @@ var EMPTY_COMPLETION_RESULT = {
 
 // src/tools.ts
 import { randomUUID } from "node:crypto";
-import path3 from "node:path";
+import path4 from "node:path";
 
 // src/git.ts
 import { execFile } from "node:child_process";
@@ -36889,15 +36914,15 @@ function driftCandidates(savedHashes, changes, differsFromHead, ignore) {
   const all = /* @__PURE__ */ new Set([...savedHashes.keys(), ...changes.map((c) => c.path), ...differsFromHead ?? []]);
   return [...all].filter((p) => !ignore(p));
 }
-function changedAfterSave(path4, { savedHashes, current, differsFromHead, untrackedNow }) {
-  const was = savedHashes.get(path4);
-  if (was !== void 0) return was !== (current.get(path4) ?? DELETED);
-  return differsFromHead === null || differsFromHead.has(path4) || untrackedNow.has(path4);
+function changedAfterSave(path5, { savedHashes, current, differsFromHead, untrackedNow }) {
+  const was = savedHashes.get(path5);
+  if (was !== void 0) return was !== (current.get(path5) ?? DELETED);
+  return differsFromHead === null || differsFromHead.has(path5) || untrackedNow.has(path5);
 }
 
 // src/listing.ts
 import { readdir } from "node:fs/promises";
-import path2 from "node:path";
+import path3 from "node:path";
 
 // src/render.ts
 var BRIEF_MAX_FILES = 40;
@@ -36989,15 +37014,13 @@ function resolveSessionId(raw) {
 // src/store.ts
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { chmod, copyFile, mkdir, open as open2, realpath, rename, stat, unlink } from "node:fs/promises";
-import path from "node:path";
+import { chmod, copyFile, mkdir, open as open2, rename, unlink } from "node:fs/promises";
+import path2 from "node:path";
 import { fileURLToPath } from "node:url";
-var BACKUP_SUFFIX = ".prev";
 var FILE_MODE = 384;
 var DIR_MODE = 448;
-var SLOTS_DIRNAME = ".claude-checkpoints";
 function checkpointPath(root) {
-  return path.join(root, CHECKPOINT_FILENAME);
+  return path2.join(root, CHECKPOINT_FILENAME);
 }
 function backupPath(file2) {
   return file2 + BACKUP_SUFFIX;
@@ -37005,26 +37028,7 @@ function backupPath(file2) {
 function selectorPath(root, selector) {
   if (selector === LEGACY_SELECTOR) return checkpointPath(root);
   if (!SESSION_ID_PATTERN.test(selector)) throw new CheckpointError(`unknown checkpoint selector: ${JSON.stringify(selector)}`);
-  return path.join(root, SLOTS_DIRNAME, `${selector}.json`);
-}
-var CheckpointError = class extends Error {
-  name = "CheckpointError";
-};
-async function resolveRoot(explicit, clientRoot, envRoot = process.env.CHECKPOINT_PROJECT_ROOT) {
-  const candidate = explicit ?? (envRoot || void 0) ?? await clientRoot().catch(() => void 0) ?? process.cwd();
-  if (!path.isAbsolute(candidate)) {
-    throw new CheckpointError(`projectRoot must be an absolute path, got: ${candidate}`);
-  }
-  let resolved;
-  try {
-    resolved = await realpath(candidate);
-  } catch {
-    throw new CheckpointError(`projectRoot does not exist: ${candidate}`);
-  }
-  if (!(await stat(resolved)).isDirectory()) {
-    throw new CheckpointError(`projectRoot is not a directory: ${candidate}`);
-  }
-  return resolved;
+  return path2.join(root, SLOTS_DIRNAME, `${selector}.json`);
 }
 function rootUriToPath(uri) {
   if (!uri.startsWith("file://")) return void 0;
@@ -37067,7 +37071,7 @@ async function readCheckpoint(file2) {
   }
   const backup = await readParsed(backupPath(file2));
   if (isCheckpoint(backup)) {
-    const name = path.basename(file2);
+    const name = path2.basename(file2);
     const why = primary === "missing" ? "is missing" : `is unreadable (${summarizeError(primary)})`;
     return {
       checkpoint: backup,
@@ -37103,7 +37107,7 @@ function fitToSize(checkpoint) {
 }
 async function writeCheckpoint(target, checkpoint) {
   const data = serialize(checkpoint);
-  await mkdir(path.dirname(target), { recursive: true, mode: DIR_MODE });
+  await mkdir(path2.dirname(target), { recursive: true, mode: DIR_MODE });
   if (isCheckpoint(await readParsed(target))) {
     await copyFile(target, backupPath(target));
     await chmod(backupPath(target), FILE_MODE);
@@ -37136,7 +37140,7 @@ var SLOT_BACKUP_EXT = SLOT_EXT + BACKUP_SUFFIX;
 async function slotSelectors(root, warnings) {
   let names;
   try {
-    names = await readdir(path2.join(root, SLOTS_DIRNAME));
+    names = await readdir(path3.join(root, SLOTS_DIRNAME));
   } catch (err) {
     const code = err.code;
     if (code === "ENOENT") return [];
@@ -37442,7 +37446,7 @@ function identity(target, root, session, now) {
     createdAt: own2?.createdAt ?? now,
     updatedAt: now,
     generator: { ...GENERATOR },
-    project: { name: path3.basename(root) },
+    project: { name: path4.basename(root) },
     ...session.id !== null ? { sessionId: session.id } : {},
     ...target.resumedFrom !== void 0 ? { resumedFrom: target.resumedFrom } : {}
   };
@@ -37483,7 +37487,7 @@ function recordFiles({ root, git: git2, args, redactor, warnings }, base) {
   return { modifiedFiles: files.slice(0, LIMITS.modifiedFiles), truncated };
 }
 async function warnIfNotIgnored(root, file2, session, warnings) {
-  if (await isIgnored(root, path3.relative(root, file2).split(path3.sep).join("/")) !== false) return;
+  if (await isIgnored(root, path4.relative(root, file2).split(path4.sep).join("/")) !== false) return;
   const shown = session.id !== null ? `${SLOTS_DIRNAME}/` : CHECKPOINT_FILENAME;
   warnings.push(`${shown} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
 }
@@ -37619,8 +37623,8 @@ function dedupe(items) {
   return [...new Set(items)];
 }
 function normalizePath(root, p) {
-  const rel = path3.isAbsolute(p) ? path3.relative(root, p) : path3.normalize(p);
-  return rel.startsWith("..") ? p : rel.split(path3.sep).join("/");
+  const rel = path4.isAbsolute(p) ? path4.relative(root, p) : path4.normalize(p);
+  return rel.startsWith("..") ? p : rel.split(path4.sep).join("/");
 }
 function buildFileList(root, gitChanges, agentFiles, previous, redactor) {
   const gitByPath = new Map(gitChanges.filter((c) => !isCheckpointFile(c.path)).map((c) => [c.path, c]));

@@ -629,13 +629,14 @@ npm run inspect     # open the MCP Inspector against dist/index.js
 src/
 ├── index.ts    # entry point: stdio transport, signals, stderr logging
 ├── hook.ts     # entry point of the plugin's SessionStart hook
-├── nudge.ts    # session-start nudge: project root, checkpoint check, hook output
+├── nudge.ts    # session-start nudge: finds checkpoint files without reading them
 ├── server.ts   # McpServer construction + server instructions
 ├── tools.ts    # save/load/list tool schemas and handlers
 ├── session.ts  # session id validation
 ├── listing.ts  # checkpoint listing for the "which one?" prompt
 ├── schema.ts   # zod schema for the checkpoint file (v1) + migrations
-├── store.ts    # project root resolution, checkpoint paths, atomic I/O, backup/fallback
+├── paths.ts    # project root resolution and checkpoint file names (no dependencies, shared with the hook)
+├── store.ts    # checkpoint paths, atomic I/O, backup/fallback
 ├── git.ts      # branch/HEAD/status snapshot, blob hashing, drift detection
 ├── redact.ts   # secret scrubbing
 └── render.ts   # checkpoint → markdown resume brief

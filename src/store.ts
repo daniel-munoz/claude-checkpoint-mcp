@@ -1,17 +1,17 @@
 import { randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { chmod, copyFile, mkdir, open, realpath, rename, stat, unlink } from "node:fs/promises";
+import { chmod, copyFile, mkdir, open, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BYTES_PER_KB, CHECKPOINT_FILENAME, MAX_FILE_BYTES, MAX_READ_BYTES, MAX_READ_KB, parseCheckpoint, type Checkpoint } from "./schema.js";
+import { BACKUP_SUFFIX, CHECKPOINT_FILENAME, CheckpointError, SLOTS_DIRNAME } from "./paths.js";
+import { BYTES_PER_KB, MAX_FILE_BYTES, MAX_READ_BYTES, MAX_READ_KB, parseCheckpoint, type Checkpoint } from "./schema.js";
 import { LEGACY_SELECTOR, SESSION_ID_PATTERN } from "./session.js";
 
-export const BACKUP_SUFFIX = ".prev";
+// Re-exported so the server keeps importing them from the store.
+export { BACKUP_SUFFIX, CheckpointError, resolveRoot, SLOTS_DIRNAME } from "./paths.js";
+
 const FILE_MODE = 0o600;
 const DIR_MODE = 0o700;
-
-/** Directory under the project root holding one checkpoint file per session. */
-export const SLOTS_DIRNAME = ".claude-checkpoints";
 
 /** The legacy single checkpoint file. */
 export function checkpointPath(root: string): string {
@@ -29,39 +29,6 @@ export function selectorPath(root: string, selector: string): string {
   return path.join(root, SLOTS_DIRNAME, `${selector}.json`);
 }
 
-export class CheckpointError extends Error {
-  override name = "CheckpointError";
-}
-
-/**
- * Picks the project root: explicit argument, then CHECKPOINT_PROJECT_ROOT, then the
- * client's first file:// root (if it supports roots), then the server's cwd.
- */
-export async function resolveRoot(
-  explicit: string | undefined,
-  clientRoot: () => Promise<string | undefined>,
-  envRoot: string | undefined = process.env.CHECKPOINT_PROJECT_ROOT,
-): Promise<string> {
-  const candidate =
-    explicit ??
-    (envRoot || undefined) ??
-    (await clientRoot().catch(() => undefined)) ??
-    process.cwd();
-
-  if (!path.isAbsolute(candidate)) {
-    throw new CheckpointError(`projectRoot must be an absolute path, got: ${candidate}`);
-  }
-  let resolved: string;
-  try {
-    resolved = await realpath(candidate);
-  } catch {
-    throw new CheckpointError(`projectRoot does not exist: ${candidate}`);
-  }
-  if (!(await stat(resolved)).isDirectory()) {
-    throw new CheckpointError(`projectRoot is not a directory: ${candidate}`);
-  }
-  return resolved;
-}
 
 /** Converts an MCP root URI to a filesystem path, ignoring non-file roots. */
 export function rootUriToPath(uri: string): string | undefined {
