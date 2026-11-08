@@ -32,6 +32,7 @@ Fork of [tenlean/claude-checkpoint-mcp](https://github.com/tenlean/claude-checkp
 - [Configuration](#configuration)
   - [Environment variables](#environment-variables)
   - [Claude Code](#claude-code)
+  - [Session-start nudge](#session-start-nudge)
   - [Claude Desktop](#claude-desktop-claude_desktop_configjson)
   - [Other MCP clients](#other-mcp-clients)
 - [Usage](#usage)
@@ -99,6 +100,7 @@ The biggest saving comes from **drift detection**. At save time, the server reco
 - **Claude supplies the meaning**: the goal, progress, decisions, next steps, and which commands mattered.
 - **The server supplies the facts**: git branch and HEAD, every uncommitted or untracked file with its content hash, and timestamps.
 - **The server instructions teach Claude when to act.** Claude is told to load at the start of a session and to save after milestones, before risky operations, and when the conversation gets long. It doesn't need to be prompted every time.
+- **The plugin's session-start hook makes resuming reliable.** Server instructions are easy for the agent to skip at the start of a session. When you install the Claude Code plugin, a [SessionStart hook](#session-start-nudge) also checks for checkpoints and, if there are any, tells Claude to load one and confirm with you before acting on it.
 
 ### One checkpoint per session
 
@@ -151,6 +153,7 @@ claude mcp add --scope user checkpoint -- npx -y session-checkpoint-mcp
 | Variable | Set by | Required | Default | What it does |
 |---|---|---|---|---|
 | `CHECKPOINT_PROJECT_ROOT` | You (optional) | No | Unset: the client's root, then the server's working directory | Absolute path of the default project to checkpoint. Use it for clients with no current project, such as Claude Desktop. A `projectRoot` argument on a tool call takes precedence. |
+| `SESSION_CHECKPOINT_NUDGE` | You (optional) | No | Unset: the nudge is on | Set to `off` (or `0`, `false`, `no`) to turn off the plugin's [session-start nudge](#session-start-nudge). Read by the hook, not the server. |
 | `CLAUDE_CODE_SESSION_ID` | Claude Code, automatically | No | Unset: one shared `.claude-checkpoint` file | Picks this session's checkpoint file, `.claude-checkpoints/<session-id>.json`. You don't set it. See [one checkpoint per session](#one-checkpoint-per-session). |
 
 ### Claude Code
@@ -209,6 +212,22 @@ Either way, add the checkpoint files to the project's `.gitignore`, or to your g
 ```gitignore
 .claude-checkpoint*
 ```
+
+### Session-start nudge
+
+The plugin ships a `SessionStart` hook (`plugin/hooks/hooks.json`, running `node dist/hook.js`). It runs when a session starts, resumes, is cleared or is compacted. If the project has checkpoints, it adds a note to Claude's context: how many exist, when the newest was saved, and an instruction to call `load_session_checkpoint` and confirm with you before acting on what it records. With no checkpoints it prints nothing. It needs only Node, which the server already requires, so it works on macOS, Linux and Windows.
+
+It looks in the same project root the server uses ([how the project root is chosen](#how-the-project-root-is-chosen)): `CHECKPOINT_PROJECT_ROOT` if it's set in the hook's environment, otherwise the directory Claude Code was started in. That is not the git top-level, so starting Claude in a subdirectory only reports checkpoints saved from that subdirectory, exactly what a plain `load_session_checkpoint` would find. If you set `CHECKPOINT_PROJECT_ROOT` only in the MCP server's config, also set it in `settings.json` `env` so the hook sees it.
+
+**Turning it off.** Set `SESSION_CHECKPOINT_NUDGE` to `off` in the `env` block of your `settings.json`:
+
+```json
+{ "env": { "SESSION_CHECKPOINT_NUDGE": "off" } }
+```
+
+The manual setup (`claude mcp add`) doesn't install the hook. To get the nudge without the plugin, register `node /absolute/path/to/claude-checkpoint-mcp/dist/hook.js` as a `SessionStart` command hook in `settings.json`.
+
+> **Upgrading from 0.3.x with your own nudge hook?** If you copied a `checkpoint-nudge.sh` hook into your config (for example `~/.claude/hooks/checkpoint-nudge.sh`), you'll now get the nudge twice. Delete the script and remove its `SessionStart` entry from `settings.json`. Do this for every config directory you use, such as `~/.claude` and any `CLAUDE_CONFIG_DIR` profile.
 
 ### Claude Desktop (`claude_desktop_config.json`)
 
@@ -589,6 +608,8 @@ Paths are always relative to the project root. The file never stores absolute pa
 | `projectRoot must be an absolute path` | Use a full path such as `/home/me/code/app`, not `./app`. |
 | Brief says "Saved commit … is no longer reachable" | The branch was rebased or reset after the save. Drift can't be computed against history, so treat the flagged files as needing a re-read. |
 | Warning: "not git-ignored" | Add `.claude-checkpoint*` to `.gitignore`. |
+| Claude is told about checkpoints twice at session start | You still have your own nudge hook as well as the plugin's. Remove yours (see [session-start nudge](#session-start-nudge)). |
+| No nudge at session start | The hook only comes with the plugin, and only fires when the session's start directory (or `CHECKPOINT_PROJECT_ROOT`) has checkpoints. Check that `SESSION_CHECKPOINT_NUDGE` isn't `off`, and run `/hooks` to see that it's registered. |
 | No "Since this checkpoint" section | The project isn't a git repo, or had no commits at save time. |
 
 Server logs go to **stderr**. Stdout is reserved for the MCP protocol.
@@ -600,13 +621,15 @@ Server logs go to **stderr**. Stdout is reserved for the MCP protocol.
 ```sh
 npm run typecheck   # strict TypeScript, src + tests
 npm test            # unit tests + in-memory MCP end-to-end tests (vitest)
-npm run build       # compile to dist/
+npm run build       # compile dist/index.js (server) and dist/hook.js (hook), and copy them to plugin/dist
 npm run inspect     # open the MCP Inspector against dist/index.js
 ```
 
 ```
 src/
 ├── index.ts    # entry point: stdio transport, signals, stderr logging
+├── hook.ts     # entry point of the plugin's SessionStart hook
+├── nudge.ts    # session-start nudge: project root, checkpoint check, hook output
 ├── server.ts   # McpServer construction + server instructions
 ├── tools.ts    # save/load/list tool schemas and handlers
 ├── session.ts  # session id validation

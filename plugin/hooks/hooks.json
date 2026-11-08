@@ -1,0 +1,17 @@
+{
+  "description": "Nudges Claude to load a session checkpoint at session start when the project has one.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

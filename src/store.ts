@@ -40,10 +40,11 @@ export class CheckpointError extends Error {
 export async function resolveRoot(
   explicit: string | undefined,
   clientRoot: () => Promise<string | undefined>,
+  envRoot: string | undefined = process.env.CHECKPOINT_PROJECT_ROOT,
 ): Promise<string> {
   const candidate =
     explicit ??
-    (process.env.CHECKPOINT_PROJECT_ROOT || undefined) ??
+    (envRoot || undefined) ??
     (await clientRoot().catch(() => undefined)) ??
     process.cwd();
 

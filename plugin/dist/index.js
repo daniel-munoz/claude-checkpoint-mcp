@@ -28639,7 +28639,7 @@ var package_default = {
     node: ">=20"
   },
   scripts: {
-    build: "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js && chmod +x dist/index.js && mkdir -p plugin/dist && cp dist/index.js plugin/dist/index.js",
+    build: "tsc --noEmit && esbuild src/index.ts src/hook.ts --bundle --platform=node --target=node20 --format=esm --outdir=dist && chmod +x dist/index.js dist/hook.js && mkdir -p plugin/dist && cp dist/index.js dist/hook.js plugin/dist/",
     dev: "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --watch",
     typecheck: "tsc --noEmit && tsc -p tsconfig.test.json",
     test: "vitest run",
@@ -37010,8 +37010,8 @@ function selectorPath(root, selector) {
 var CheckpointError = class extends Error {
   name = "CheckpointError";
 };
-async function resolveRoot(explicit, clientRoot) {
-  const candidate = explicit ?? (process.env.CHECKPOINT_PROJECT_ROOT || void 0) ?? await clientRoot().catch(() => void 0) ?? process.cwd();
+async function resolveRoot(explicit, clientRoot, envRoot = process.env.CHECKPOINT_PROJECT_ROOT) {
+  const candidate = explicit ?? (envRoot || void 0) ?? await clientRoot().catch(() => void 0) ?? process.cwd();
   if (!path.isAbsolute(candidate)) {
     throw new CheckpointError(`projectRoot must be an absolute path, got: ${candidate}`);
   }

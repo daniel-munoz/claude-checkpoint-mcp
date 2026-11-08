@@ -42,3 +42,20 @@ jobs:
 
     - name: Check plugin bundle is up to date
       run: git diff --exit-code -- plugin/dist || (echo "::error::plugin/dist is stale; run npm run build and commit it" && exit 1)
+
+  hook:
+    # The plugin's SessionStart hook must run on every OS Claude Code supports, with only Node.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 20
+
+    - name: Run the committed hook
+      run: node scripts/hook-smoke.mjs
