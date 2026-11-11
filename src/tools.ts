@@ -46,9 +46,8 @@ const isCheckpointFile = (p: string) =>
   CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`) || p.startsWith(`${SLOTS_DIRNAME}/`);
 
 export function registerTools(server: McpServer, session: Session): void {
-  // Per project root: the checkpoint this session chose to resume from (by explicit selector),
-  // used as the merge base until the session's own checkpoint exists.
-  const adopted = new Map<string, string>();
+  // No per-process state links calls: a checkpoint being resumed is named on the save itself
+  // (`resumedFrom`), so it survives a server restart between load and save (#18).
 
   // The SDK dispatches requests concurrently and models may issue parallel tool calls;
   // run checkpoint operations one at a time so merges and reads never interleave.
@@ -65,8 +64,8 @@ export function registerTools(server: McpServer, session: Session): void {
     return roots.map((r) => rootUriToPath(r.uri)).find((p) => p !== undefined);
   };
 
-  server.registerTool("save_session_checkpoint", saveTool, (args) => serialized(() => save(args, session, adopted, clientRoot)));
-  server.registerTool("load_session_checkpoint", loadTool, (args) => serialized(() => load(args, session, adopted, clientRoot)));
+  server.registerTool("save_session_checkpoint", saveTool, (args) => serialized(() => save(args, session, clientRoot)));
+  server.registerTool("load_session_checkpoint", loadTool, (args) => serialized(() => load(args, session, clientRoot)));
   server.registerTool("list_session_checkpoints", listTool, (args) => serialized(() => list(args, session, clientRoot)));
 }
 
@@ -80,15 +79,10 @@ async function guard(fn: () => Promise<CallToolResult>): Promise<CallToolResult>
   }
 }
 
-async function save(
-  args: SaveArgs,
-  session: Session,
-  adopted: Map<string, string>,
-  clientRoot: () => Promise<string | undefined>,
-): Promise<CallToolResult> {
+async function save(args: SaveArgs, session: Session, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const warnings: string[] = session.warning ? [session.warning] : [];
-  const target = await saveBase(root, session, adopted.get(root), args.mode, warnings);
+  const target = await saveBase(root, session, args.resumedFrom, args.mode, warnings);
   const git = await snapshot(root, MAX_HASHED_CHANGES);
 
   const checkpoint = buildCheckpoint({ args, root, session, target, git, redactor: createRedactor(), warnings });
@@ -245,36 +239,54 @@ interface SaveBase {
 
 /**
  * Sessions only ever write their own checkpoint (the legacy file when there's no session id).
- * Until it exists, a checkpoint the session resumed from is the merge base and is recorded as resumedFrom.
+ * Until it exists, the checkpoint named by `resumedFrom` is the merge base and is recorded as resumedFrom.
  */
 async function saveBase(
   root: string,
   session: Session,
-  adoptedSelector: string | undefined,
+  requested: string | undefined,
   mode: "replace" | "merge",
   warnings: string[],
 ): Promise<SaveBase> {
-  const file = selectorPath(root, session.id ?? LEGACY_SELECTOR);
-  const own = await readOrWarn(file, session.id ?? LEGACY_SELECTOR, warnings);
-  const fromAdopted = own === null ? adoptedSelector : undefined;
-  const resumedFrom = own?.checkpoint.resumedFrom ?? fromAdopted;
+  const ownSelector = session.id ?? LEGACY_SELECTOR;
+  const resumeSelector = requested === ownSelector ? undefined : requested;
+  // Resolved first so a malformed selector fails the save before anything is read or written.
+  const resumeFile = resumeSelector === undefined ? undefined : selectorPath(root, resumeSelector);
+
+  const file = selectorPath(root, ownSelector);
+  const own = await readOrWarn(file, ownSelector, warnings);
+  const resumed = own === null && resumeFile !== undefined ? await readResumed(resumeFile, resumeSelector!, warnings) : null;
+  const resumedFrom = own?.checkpoint.resumedFrom ?? (resumed ? resumeSelector : undefined);
 
   let previous: LoadResult | null = null;
   if (mode === "merge") {
-    previous = own ?? (fromAdopted === undefined ? null : await readOrWarn(selectorPath(root, fromAdopted), fromAdopted, warnings));
-    if (previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
+    previous = own ?? resumed;
+    if (previous === null) {
+      warnings.push(
+        "No existing checkpoint to merge into; saved a new one." +
+          (requested === undefined ? " If this session resumed another checkpoint, pass its selector as `resumedFrom`." : ""),
+      );
+    }
   }
   if (previous) warnings.push(...previous.warnings);
   // A checkpoint started from another one is a new checkpoint, not a continuation of that file.
   return { file, previous, resumedFrom, continuing: previous !== null && previous === own };
 }
 
-async function load(
-  args: LoadArgs,
-  session: Session,
-  adopted: Map<string, string>,
-  clientRoot: () => Promise<string | undefined>,
-): Promise<CallToolResult> {
+/** The checkpoint a save names as `resumedFrom`; null, with a warning, when it is missing or unreadable. */
+async function readResumed(file: string, selector: string, warnings: string[]): Promise<LoadResult | null> {
+  let result: LoadResult | null;
+  try {
+    result = await readCheckpoint(file);
+  } catch (err) {
+    warnings.push(`Checkpoint ${selector} could not be read and was not used: ${(err as Error).message}`);
+    return null;
+  }
+  if (result === null) warnings.push(`resumedFrom checkpoint ${JSON.stringify(selector)} not found; saved without resuming from it.`);
+  return result;
+}
+
+async function load(args: LoadArgs, session: Session, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const sessionWarnings = session.warning ? [session.warning] : [];
   const own = session.id ?? LEGACY_SELECTOR;
@@ -285,8 +297,11 @@ async function load(
     if (result === null) {
       throw new CheckpointError(`no checkpoint "${args.checkpoint}" in ${root}. Call list_session_checkpoints to see the available ones.`);
     }
-    if (args.checkpoint !== own) adopted.set(root, args.checkpoint);
-    return loaded({ root, selector: args.checkpoint, file, result, format: args.format, sessionWarnings });
+    const resumeHint =
+      args.checkpoint === own
+        ? undefined
+        : `To continue from this checkpoint, pass \`resumedFrom: ${JSON.stringify(args.checkpoint)}\` on your next save_session_checkpoint call.`;
+    return loaded({ root, selector: args.checkpoint, file, result, format: args.format, sessionWarnings, resumeHint });
   }
 
   // An unreadable own checkpoint shows up in the list below (marked unreadable) rather than failing the call.
@@ -337,9 +352,11 @@ interface Loaded {
   result: LoadResult;
   format: "brief" | "full";
   sessionWarnings: string[];
+  /** Set when the session loaded a checkpoint other than its own: what to pass on its next save. */
+  resumeHint?: string | undefined;
 }
 
-async function loaded({ root, selector, file, result, format, sessionWarnings }: Loaded): Promise<CallToolResult> {
+async function loaded({ root, selector, file, result, format, sessionWarnings, resumeHint }: Loaded): Promise<CallToolResult> {
   const { checkpoint, fromBackup } = result;
   const warnings = [...sessionWarnings, ...result.warnings];
   let drift: Drift | null = null;
@@ -350,7 +367,11 @@ async function loaded({ root, selector, file, result, format, sessionWarnings }:
     drift = await computeDrift(root, checkpoint.git, savedHashes, isCheckpointFile);
   }
 
-  const text = format === "full" ? JSON.stringify({ checkpoint, drift, warnings }, null, 2) : renderBrief(checkpoint, drift, warnings);
+  const hint = resumeHint === undefined ? {} : { resumeHint };
+  const text =
+    format === "full"
+      ? JSON.stringify({ checkpoint, drift, warnings, ...hint }, null, 2)
+      : [...(resumeHint === undefined ? [] : [`> ${resumeHint}`, ""]), renderBrief(checkpoint, drift, warnings)].join("\n");
 
   return {
     content: [{ type: "text", text }],
@@ -362,6 +383,7 @@ async function loaded({ root, selector, file, result, format, sessionWarnings }:
       updatedAt: checkpoint.updatedAt,
       drift,
       warnings,
+      ...hint,
       // Some clients (Claude Code) show the model structuredContent instead of the text content,
       // so the brief has to be here too or the model never sees it.
       ...(format === "full" ? { checkpoint } : { brief: text }),

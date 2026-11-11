@@ -311,7 +311,7 @@ describe("per-session save", () => {
 
     const s2 = await connect("s2");
     await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
-    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "shared goal", mode: "merge" });
+    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "shared goal", mode: "merge", resumedFrom: "s1" });
 
     const mine = readJson(selectorPath(dir, "s2"));
     expect(mine.goal.tasks).toEqual([{ description: "t1", status: "in_progress" }]);
@@ -321,25 +321,25 @@ describe("per-session save", () => {
     expect(readFileSync(selectorPath(dir, "s1"), "utf8")).toBe(original);
   });
 
-  it("records resumedFrom on a replace save after adopting, and keeps it on later saves", async () => {
+  it("records resumedFrom on a replace save after resuming, and keeps it on later saves", async () => {
     const dir = tempDir();
     seed(dir, "s1", "older work");
     const s2 = await connect("s2");
     await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
-    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "new task" });
+    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "new task", resumedFrom: "s1" });
     expect(readJson(selectorPath(dir, "s2")).resumedFrom).toBe("s1");
     await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "new task again" });
     expect(readJson(selectorPath(dir, "s2")).resumedFrom).toBe("s1");
   });
 
-  it("without a session id, merges into the legacy checkpoint rather than an adopted one", async () => {
+  it("without a session id, merges into the legacy checkpoint rather than the one it resumed from", async () => {
     const dir = tempDir();
     await call("save_session_checkpoint", { projectRoot: dir, goal: "legacy goal", tasks: [{ description: "legacy task", status: "pending" }] });
     const s1 = await connect("s1");
     await callAs(s1, "save_session_checkpoint", { projectRoot: dir, goal: "slot goal", tasks: [{ description: "slot task", status: "pending" }] });
 
     await call("load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
-    await call("save_session_checkpoint", { projectRoot: dir, goal: "legacy goal", mode: "merge" });
+    await call("save_session_checkpoint", { projectRoot: dir, goal: "legacy goal", mode: "merge", resumedFrom: "s1" });
     const legacy = readJson(path.join(dir, ".claude-checkpoint"));
     expect(legacy.goal.tasks.map((t: { description: string }) => t.description)).toEqual(["legacy task"]);
     expect(legacy.resumedFrom).toBeUndefined();
@@ -410,14 +410,122 @@ describe("review fixes", () => {
     expect(data.warnings.some((w: string) => /could not be read/.test(w))).toBe(true);
   });
 
-  it("warns when the adopted checkpoint became unreadable before a merge save", async () => {
+  it("warns when the resumed checkpoint became unreadable before a merge save", async () => {
     const dir = tempDir();
     seed(dir, "s1", "older work");
     const s2 = await connect("s2");
     await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
     writeFileSync(selectorPath(dir, "s1"), "garbage");
-    const { data } = await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "g", mode: "merge" });
+    const { data } = await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "g", mode: "merge", resumedFrom: "s1" });
     expect(data.warnings.some((w: string) => /s1.*could not be read/.test(w))).toBe(true);
+    expect(readJson(selectorPath(dir, "s2")).resumedFrom).toBeUndefined();
+  });
+});
+
+describe("resuming across a server restart (#18)", () => {
+  /** s1 leaves a checkpoint with content worth inheriting; returns the project dir. */
+  async function withS1Checkpoint(): Promise<string> {
+    const dir = tempDir();
+    await callAs(await connect("s1"), "save_session_checkpoint", {
+      projectRoot: dir,
+      goal: "shared goal",
+      summary: "s1 summary",
+      tasks: [{ description: "t1", status: "in_progress" }],
+      nextSteps: ["s1 step"],
+    });
+    return dir;
+  }
+
+  it("keeps the resumed content and resumedFrom when the server restarts between load and save", async () => {
+    const dir = await withS1Checkpoint();
+    await callAs(await connect("s2"), "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
+
+    const restarted = await connect("s2");
+    const { result, data } = await callAs(restarted, "save_session_checkpoint", {
+      projectRoot: dir,
+      goal: "shared goal",
+      mode: "merge",
+      resumedFrom: "s1",
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(data.warnings).toEqual([]);
+    expect(readJson(selectorPath(dir, "s2"))).toMatchObject({
+      sessionId: "s2",
+      resumedFrom: "s1",
+      summary: "s1 summary",
+      nextSteps: ["s1 step"],
+      goal: { tasks: [{ description: "t1", status: "in_progress" }] },
+    });
+  });
+
+  it("does not resume from a checkpoint loaded earlier unless the save names it", async () => {
+    const dir = await withS1Checkpoint();
+    const s2 = await connect("s2");
+    await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
+    const { data } = await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "g", mode: "merge" });
+
+    const mine = readJson(selectorPath(dir, "s2"));
+    expect(mine.resumedFrom).toBeUndefined();
+    expect(mine.summary).toBe("");
+    expect(data.warnings.some((w: string) => /No existing checkpoint to merge into/.test(w) && /resumedFrom/.test(w))).toBe(true);
+  });
+
+  it("tells the agent which resumedFrom to pass when it loads another session's checkpoint", async () => {
+    const dir = await withS1Checkpoint();
+    const s2 = await connect("s2");
+    const brief = await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1" });
+    expect(brief.text).toContain('resumedFrom: "s1"');
+    expect(brief.data.brief).toContain('resumedFrom: "s1"');
+    expect(brief.data.resumeHint).toContain('resumedFrom: "s1"');
+
+    const full = await callAs(s2, "load_session_checkpoint", { projectRoot: dir, checkpoint: "s1", format: "full" });
+    expect(JSON.parse(full.text).resumeHint).toContain('resumedFrom: "s1"');
+  });
+
+  it("gives no resume hint when a session loads its own checkpoint", async () => {
+    const dir = await withS1Checkpoint();
+    const s1 = await connect("s1");
+    for (const args of [{ projectRoot: dir }, { projectRoot: dir, checkpoint: "s1" }]) {
+      const { text, data } = await callAs(s1, "load_session_checkpoint", args);
+      expect(text).not.toContain("resumedFrom");
+      expect(data.resumeHint).toBeUndefined();
+    }
+  });
+
+  it("ignores resumedFrom once the session has its own checkpoint", async () => {
+    const dir = await withS1Checkpoint();
+    const s2 = await connect("s2");
+    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "own goal", summary: "own summary" });
+    const before = readJson(selectorPath(dir, "s2"));
+
+    await callAs(s2, "save_session_checkpoint", { projectRoot: dir, goal: "own goal", mode: "merge", resumedFrom: "s1" });
+    const after = readJson(selectorPath(dir, "s2"));
+    expect(after).toMatchObject({ id: before.id, summary: "own summary" });
+    expect(after.resumedFrom).toBeUndefined();
+  });
+
+  it("ignores resumedFrom naming the session's own checkpoint", async () => {
+    const dir = tempDir();
+    const { data } = await callAs(await connect("s2"), "save_session_checkpoint", { projectRoot: dir, goal: "g", resumedFrom: "s2" });
+    expect(data.warnings).toEqual([]);
+    expect(readJson(selectorPath(dir, "s2")).resumedFrom).toBeUndefined();
+  });
+
+  it("rejects a malformed resumedFrom without writing anything", async () => {
+    const dir = tempDir();
+    const { result, text } = await callAs(await connect("s2"), "save_session_checkpoint", { projectRoot: dir, goal: "g", resumedFrom: "../etc" });
+    expect(result.isError).toBe(true);
+    expect(text).toMatch(/unknown checkpoint selector/);
+    expect(existsSync(selectorPath(dir, "s2"))).toBe(false);
+  });
+
+  it("saves without the link, and warns, when resumedFrom names a checkpoint that doesn't exist", async () => {
+    const dir = tempDir();
+    const { result, data } = await callAs(await connect("s2"), "save_session_checkpoint", { projectRoot: dir, goal: "g", resumedFrom: "nope" });
+    expect(result.isError).toBeFalsy();
+    expect(data.warnings.some((w: string) => /"nope"/.test(w) && /not found/.test(w))).toBe(true);
+    expect(readJson(selectorPath(dir, "s2")).resumedFrom).toBeUndefined();
   });
 });
 

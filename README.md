@@ -108,7 +108,7 @@ Claude Code passes each MCP server its session id (`CLAUDE_CODE_SESSION_ID`). Th
 
 - **Saving** always writes the current session's own file.
 - **Loading** returns the session's own checkpoint if it has one. Otherwise, if other checkpoints exist, it returns a list (goal, last-saved time, branch, whether all tasks are done) and Claude asks you which one to resume. It never picks one for you, even when there's only one.
-- **Resuming another session's checkpoint** loads it, but saves still go to the current session's own file, starting from what was loaded and recording where it came from (`resumedFrom`). The original is never modified.
+- **Resuming another session's checkpoint** loads it, but saves still go to the current session's own file. The load result tells Claude to pass the checkpoint's selector as `resumedFrom` on its next save. That save then starts from the resumed checkpoint and records where it came from. The server doesn't keep this in memory, so it still works if the server restarts in between. The original is never modified.
 - **Checkpoints are kept** until you delete them, so an old session can be resumed later.
 - **Clients without a session id** (e.g. Claude Desktop) use the single `<project>/.claude-checkpoint` file, exactly as before. A `.claude-checkpoint` left by an earlier version shows up in the list as `legacy`.
 
@@ -347,6 +347,7 @@ Writes the current session's checkpoint: `<projectRoot>/.claude-checkpoints/<ses
 | `modifiedFiles` | `{ path, note? }[]` (≤ 100) | | Files to annotate, or committed files to include. Uncommitted git changes are detected automatically. Absolute paths inside the project are stored as relative. |
 | `recentCommands` | `{ command, exitCode?, note? }[]` (≤ 50) | | Significant commands, oldest first. Secrets are redacted. |
 | `mode` | `"replace"` \| `"merge"` | | Default `replace`. See below. |
+| `resumedFrom` | `string` | | Selector of the checkpoint this session resumed from. Pass it on the first save after loading another session's checkpoint: a `merge` save builds on it, and either mode records it. Ignored once the session has its own checkpoint. A malformed selector is a tool error. One that doesn't exist or can't be read gives a warning, and the save goes ahead without it. |
 | `projectRoot` | `string` (absolute) | | Overrides [root resolution](#how-the-project-root-is-chosen) |
 
 **Full save:**
@@ -459,6 +460,8 @@ If no checkpoint exists, the tool returns `found: false` with a "nothing to resu
 
 If the current session has no checkpoint but others exist, it returns `found: false` with `candidates` (the same entries as `list_session_checkpoints`, newest first, up to 10), `total`, `omitted`, and `text` telling Claude to ask you which one to resume. An unknown `checkpoint` selector is a tool error.
 
+Loading a checkpoint other than the session's own adds a `resumeHint`, which is also the first line of the brief, telling Claude to pass `resumedFrom` on its next save.
+
 ### `list_session_checkpoints`
 
 Read-only. Lists the project's checkpoints, newest first; unreadable ones are listed last with a warning rather than hidden.
@@ -565,7 +568,7 @@ Each one is plain, versioned JSON, so it's easy to read, diff, or edit by hand. 
 
 | Field | Notes |
 |---|---|
-| `version` | Schema version. Older versions are migrated on load; unknown versions are rejected. |
+| `version` | Schema version. Unknown versions are rejected; future versions will migrate older files on load. |
 | `id` / `createdAt` | Stable across `merge` saves; new on `replace` |
 | `sessionId` | The Claude Code session that owns the checkpoint (absent in the legacy file) |
 | `resumedFrom` | Selector of the checkpoint this one was started from, if any; kept on later saves |

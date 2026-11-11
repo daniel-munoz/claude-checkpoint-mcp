@@ -37289,6 +37289,9 @@ var saveInput = {
     })
   ).max(LIMITS.recentCommands).optional().describe("Recent significant terminal commands (builds, tests, migrations), oldest first, with exit codes and a short note on the outcome. Secrets are redacted automatically."),
   mode: external_exports.enum(["replace", "merge"]).default("replace").describe("replace: overwrite the checkpoint. merge: update the existing one, appending commands, decisions and files."),
+  resumedFrom: external_exports.string().max(128).optional().describe(
+    "Selector of the checkpoint this session resumed from, as given by load_session_checkpoint. Pass it on the first save after loading another session's checkpoint: a merge save then builds on it, and the link is recorded. Ignored once this session has its own checkpoint."
+  ),
   projectRoot: projectRootArg
 };
 var saveOutput = {
@@ -37348,6 +37351,7 @@ var loadOutput = {
     changedSince: external_exports.array(external_exports.string())
   }).nullable().optional(),
   warnings: external_exports.array(external_exports.string()),
+  resumeHint: external_exports.string().optional(),
   brief: external_exports.string().optional(),
   text: external_exports.string().optional(),
   checkpoint: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
@@ -37364,7 +37368,7 @@ var saveTool = {
 };
 var loadTool = {
   title: "Load session checkpoint",
-  description: "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, touched files and recent commands, plus which files changed since it was saved. Call at the start of a session or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
+  description: "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, touched files and recent commands, plus which files changed since it was saved. Call at the start of a session or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector. After loading another session's checkpoint, pass that selector as `resumedFrom` on the next save_session_checkpoint call.",
   inputSchema: loadSchema,
   outputSchema: loadOutput,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
@@ -37383,7 +37387,6 @@ var CLIENT_ROOTS_TIMEOUT_MS = 2e3;
 var CHECKPOINT_FILES = /* @__PURE__ */ new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
 var isCheckpointFile = (p) => CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`) || p.startsWith(`${SLOTS_DIRNAME}/`);
 function registerTools(server, session) {
-  const adopted = /* @__PURE__ */ new Map();
   let queue = Promise.resolve();
   const serialized = (fn) => {
     const next = queue.then(() => guard(fn));
@@ -37395,8 +37398,8 @@ function registerTools(server, session) {
     const { roots } = await server.server.listRoots(void 0, { timeout: CLIENT_ROOTS_TIMEOUT_MS });
     return roots.map((r) => rootUriToPath(r.uri)).find((p) => p !== void 0);
   };
-  server.registerTool("save_session_checkpoint", saveTool, (args) => serialized(() => save(args, session, adopted, clientRoot)));
-  server.registerTool("load_session_checkpoint", loadTool, (args) => serialized(() => load(args, session, adopted, clientRoot)));
+  server.registerTool("save_session_checkpoint", saveTool, (args) => serialized(() => save(args, session, clientRoot)));
+  server.registerTool("load_session_checkpoint", loadTool, (args) => serialized(() => load(args, session, clientRoot)));
   server.registerTool("list_session_checkpoints", listTool, (args) => serialized(() => list(args, session, clientRoot)));
 }
 async function guard(fn) {
@@ -37407,10 +37410,10 @@ async function guard(fn) {
     return { isError: true, content: [{ type: "text", text: `Checkpoint error: ${message}` }] };
   }
 }
-async function save(args, session, adopted, clientRoot) {
+async function save(args, session, clientRoot) {
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const warnings = session.warning ? [session.warning] : [];
-  const target = await saveBase(root, session, adopted.get(root), args.mode, warnings);
+  const target = await saveBase(root, session, args.resumedFrom, args.mode, warnings);
   const git2 = await snapshot(root, MAX_HASHED_CHANGES);
   const checkpoint = buildCheckpoint({ args, root, session, target, git: git2, redactor: createRedactor(), warnings });
   const bytes = await writeCheckpoint(target.file, checkpoint);
@@ -37517,20 +37520,38 @@ async function readOrWarn(file2, selector, warnings) {
     return null;
   }
 }
-async function saveBase(root, session, adoptedSelector, mode, warnings) {
-  const file2 = selectorPath(root, session.id ?? LEGACY_SELECTOR);
-  const own2 = await readOrWarn(file2, session.id ?? LEGACY_SELECTOR, warnings);
-  const fromAdopted = own2 === null ? adoptedSelector : void 0;
-  const resumedFrom = own2?.checkpoint.resumedFrom ?? fromAdopted;
+async function saveBase(root, session, requested, mode, warnings) {
+  const ownSelector = session.id ?? LEGACY_SELECTOR;
+  const resumeSelector = requested === ownSelector ? void 0 : requested;
+  const resumeFile = resumeSelector === void 0 ? void 0 : selectorPath(root, resumeSelector);
+  const file2 = selectorPath(root, ownSelector);
+  const own2 = await readOrWarn(file2, ownSelector, warnings);
+  const resumed = own2 === null && resumeFile !== void 0 ? await readResumed(resumeFile, resumeSelector, warnings) : null;
+  const resumedFrom = own2?.checkpoint.resumedFrom ?? (resumed ? resumeSelector : void 0);
   let previous = null;
   if (mode === "merge") {
-    previous = own2 ?? (fromAdopted === void 0 ? null : await readOrWarn(selectorPath(root, fromAdopted), fromAdopted, warnings));
-    if (previous === null) warnings.push("No existing checkpoint to merge into; saved a new one.");
+    previous = own2 ?? resumed;
+    if (previous === null) {
+      warnings.push(
+        "No existing checkpoint to merge into; saved a new one." + (requested === void 0 ? " If this session resumed another checkpoint, pass its selector as `resumedFrom`." : "")
+      );
+    }
   }
   if (previous) warnings.push(...previous.warnings);
   return { file: file2, previous, resumedFrom, continuing: previous !== null && previous === own2 };
 }
-async function load(args, session, adopted, clientRoot) {
+async function readResumed(file2, selector, warnings) {
+  let result;
+  try {
+    result = await readCheckpoint(file2);
+  } catch (err) {
+    warnings.push(`Checkpoint ${selector} could not be read and was not used: ${err.message}`);
+    return null;
+  }
+  if (result === null) warnings.push(`resumedFrom checkpoint ${JSON.stringify(selector)} not found; saved without resuming from it.`);
+  return result;
+}
+async function load(args, session, clientRoot) {
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const sessionWarnings = session.warning ? [session.warning] : [];
   const own2 = session.id ?? LEGACY_SELECTOR;
@@ -37540,8 +37561,8 @@ async function load(args, session, adopted, clientRoot) {
     if (result2 === null) {
       throw new CheckpointError(`no checkpoint "${args.checkpoint}" in ${root}. Call list_session_checkpoints to see the available ones.`);
     }
-    if (args.checkpoint !== own2) adopted.set(root, args.checkpoint);
-    return loaded({ root, selector: args.checkpoint, file: file3, result: result2, format: args.format, sessionWarnings });
+    const resumeHint = args.checkpoint === own2 ? void 0 : `To continue from this checkpoint, pass \`resumedFrom: ${JSON.stringify(args.checkpoint)}\` on your next save_session_checkpoint call.`;
+    return loaded({ root, selector: args.checkpoint, file: file3, result: result2, format: args.format, sessionWarnings, resumeHint });
   }
   const file2 = selectorPath(root, own2);
   const result = await readCheckpoint(file2).catch(() => null);
@@ -37577,7 +37598,7 @@ function candidates(root, file2, listing, sessionWarnings) {
     }
   };
 }
-async function loaded({ root, selector, file: file2, result, format, sessionWarnings }) {
+async function loaded({ root, selector, file: file2, result, format, sessionWarnings, resumeHint }) {
   const { checkpoint, fromBackup } = result;
   const warnings = [...sessionWarnings, ...result.warnings];
   let drift2 = null;
@@ -37587,7 +37608,8 @@ async function loaded({ root, selector, file: file2, result, format, sessionWarn
     );
     drift2 = await drift(root, checkpoint.git, savedHashes, isCheckpointFile);
   }
-  const text = format === "full" ? JSON.stringify({ checkpoint, drift: drift2, warnings }, null, 2) : renderBrief(checkpoint, drift2, warnings);
+  const hint = resumeHint === void 0 ? {} : { resumeHint };
+  const text = format === "full" ? JSON.stringify({ checkpoint, drift: drift2, warnings, ...hint }, null, 2) : [...resumeHint === void 0 ? [] : [`> ${resumeHint}`, ""], renderBrief(checkpoint, drift2, warnings)].join("\n");
   return {
     content: [{ type: "text", text }],
     structuredContent: {
@@ -37598,6 +37620,7 @@ async function loaded({ root, selector, file: file2, result, format, sessionWarn
       updatedAt: checkpoint.updatedAt,
       drift: drift2,
       warnings,
+      ...hint,
       // Some clients (Claude Code) show the model structuredContent instead of the text content,
       // so the brief has to be here too or the model never sees it.
       ...format === "full" ? { checkpoint } : { brief: text }
@@ -37656,6 +37679,7 @@ function buildFileList(root, gitChanges, agentFiles, previous, redactor) {
 var INSTRUCTIONS = `Persists session context to a checkpoint file in the project so work survives crashes, /clear, and context limits. Each Claude Code session has its own checkpoint.
 - At the start of a session, or when the user says "resume" / "continue where we left off", call load_session_checkpoint and follow its next steps. Re-read only the files it lists as changed since the checkpoint.
 - If load_session_checkpoint returns a list instead of a checkpoint, show the list to the user and ask which one to resume, then call it again with that checkpoint. Never pick one on the user's behalf.
+- After loading another session's checkpoint, pass its selector as \`resumedFrom\` on your next save_session_checkpoint call, so the save builds on it. The server does not remember what you loaded.
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
 function createServer(options = {}) {

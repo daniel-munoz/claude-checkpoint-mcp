@@ -50,6 +50,15 @@ const saveInput = {
     .enum(["replace", "merge"])
     .default("replace")
     .describe("replace: overwrite the checkpoint. merge: update the existing one, appending commands, decisions and files."),
+  resumedFrom: z
+    .string()
+    .max(128)
+    .optional()
+    .describe(
+      "Selector of the checkpoint this session resumed from, as given by load_session_checkpoint. " +
+        "Pass it on the first save after loading another session's checkpoint: a merge save then builds on it, and the link is recorded. " +
+        "Ignored once this session has its own checkpoint.",
+    ),
   projectRoot: projectRootArg,
 };
 
@@ -129,6 +138,7 @@ const loadOutput = {
     .nullable()
     .optional(),
   warnings: z.array(z.string()),
+  resumeHint: z.string().optional(),
   brief: z.string().optional(),
   text: z.string().optional(),
   checkpoint: z.record(z.string(), z.unknown()).optional(),
@@ -163,7 +173,8 @@ export const loadTool = {
     "Load this session's checkpoint and return a compact brief of its goal, progress, next steps, " +
     "touched files and recent commands, plus which files changed since it was saved. Call at the start of a session " +
     "or when the user asks to resume. If this session has no checkpoint but others exist in the project, it returns " +
-    "a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector.",
+    "a list instead: show it to the user, ask which one to resume, and call again with `checkpoint` set to its selector. " +
+    "After loading another session's checkpoint, pass that selector as `resumedFrom` on the next save_session_checkpoint call.",
   inputSchema: loadSchema,
   outputSchema: loadOutput,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
