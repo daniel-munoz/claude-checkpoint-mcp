@@ -11,8 +11,8 @@ function log(message: string): void {
 }
 
 async function main(): Promise<void> {
-  const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID);
   const idMode = resolveIdMode(process.env.CHECKPOINT_SESSION_IDS);
+  const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID, idMode.mint);
   const warning = [session.warning, idMode.warning].filter((w) => w !== undefined).join(" ");
   const server = createServer({ sessionId: session.id, mintSessionIds: idMode.mint, ...(warning ? { sessionWarning: warning } : {}) });
   const transport = new StdioServerTransport();

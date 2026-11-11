@@ -13,16 +13,14 @@ export interface SessionId {
 
 /**
  * Validates the session id Claude Code passes in CLAUDE_CODE_SESSION_ID. A missing id means
- * the client doesn't provide one (checkpoints fall back to the legacy file); an unusable one
- * is treated the same way but reported.
+ * the client doesn't provide one (checkpoints fall back to the legacy file, or to a minted id when
+ * `mint` is on); an unusable one is treated the same way but reported.
  */
-export function resolveSessionId(raw: string | undefined): SessionId {
+export function resolveSessionId(raw: string | undefined, mint = false): SessionId {
   if (!raw) return { id: null };
   if (SESSION_ID_PATTERN.test(raw) && raw !== LEGACY_SELECTOR) return { id: raw };
-  return {
-    id: null,
-    warning: "CLAUDE_CODE_SESSION_ID is not a usable session id; checkpoints are using the shared .claude-checkpoint file.",
-  };
+  const fallback = mint ? "each conversation gets a minted session id instead" : "checkpoints are using the shared .claude-checkpoint file";
+  return { id: null, warning: `CLAUDE_CODE_SESSION_ID is not a usable session id; ${fallback}.` };
 }
 
 /** Where a call's session id came from. */
@@ -48,7 +46,8 @@ export function resolveCallSession(arg: string | undefined, envId: string | null
   if (arg === envId) return { id: envId, source: "env" };
   throw new CheckpointError(
     `This server runs for session ${JSON.stringify(envId)}; session: ${JSON.stringify(arg)} names a different one. ` +
-      "To continue another checkpoint, load it and pass its selector as resumedFrom on your next save.",
+      "To continue another checkpoint, load it and pass its selector as resumedFrom on your next save. " +
+      "To use this server's own session, omit session.",
   );
 }
 

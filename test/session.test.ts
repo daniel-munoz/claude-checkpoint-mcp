@@ -20,6 +20,13 @@ describe("resolveSessionId", () => {
     }
   });
 
+  it("says a minted id replaces an unusable one when minting is on", () => {
+    const result = resolveSessionId("../etc", true);
+    expect(result.id).toBeNull();
+    expect(result.warning).toContain("minted");
+    expect(result.warning).not.toContain(".claude-checkpoint");
+  });
+
   it("rejects the reserved legacy selector", () => {
     const result = resolveSessionId("legacy");
     expect(result.id).toBeNull();
@@ -46,6 +53,10 @@ describe("resolveCallSession", () => {
 
   it("rejects an argument that differs from the env var", () => {
     expect(() => resolveCallSession("other", "env1")).toThrow('This server runs for session "env1"; session: "other" names a different one.');
+  });
+
+  it("tells a caller with a stale id how to recover from a conflict", () => {
+    expect(() => resolveCallSession("old", "env1")).toThrow("To use this server's own session, omit session.");
   });
 
   it("rejects arguments that aren't usable session ids", () => {

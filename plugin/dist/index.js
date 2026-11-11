@@ -37002,13 +37002,11 @@ function renderDrift(cp, drift2) {
 // src/session.ts
 var LEGACY_SELECTOR = "legacy";
 var SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-function resolveSessionId(raw) {
+function resolveSessionId(raw, mint = false) {
   if (!raw) return { id: null };
   if (SESSION_ID_PATTERN.test(raw) && raw !== LEGACY_SELECTOR) return { id: raw };
-  return {
-    id: null,
-    warning: "CLAUDE_CODE_SESSION_ID is not a usable session id; checkpoints are using the shared .claude-checkpoint file."
-  };
+  const fallback = mint ? "each conversation gets a minted session id instead" : "checkpoints are using the shared .claude-checkpoint file";
+  return { id: null, warning: `CLAUDE_CODE_SESSION_ID is not a usable session id; ${fallback}.` };
 }
 function resolveCallSession(arg, envId) {
   if (arg === void 0) return envId === null ? { id: null, source: null } : { id: envId, source: "env" };
@@ -37018,7 +37016,7 @@ function resolveCallSession(arg, envId) {
   if (envId === null) return { id: arg, source: "argument" };
   if (arg === envId) return { id: envId, source: "env" };
   throw new CheckpointError(
-    `This server runs for session ${JSON.stringify(envId)}; session: ${JSON.stringify(arg)} names a different one. To continue another checkpoint, load it and pass its selector as resumedFrom on your next save.`
+    `This server runs for session ${JSON.stringify(envId)}; session: ${JSON.stringify(arg)} names a different one. To continue another checkpoint, load it and pass its selector as resumedFrom on your next save. To use this server's own session, omit session.`
   );
 }
 function resolveIdMode(raw) {
@@ -37747,7 +37745,7 @@ var INSTRUCTIONS = `Persists session context to a checkpoint file in the project
 - After loading another session's checkpoint, pass its selector as \`resumedFrom\` on your next save_session_checkpoint call, so the save builds on it. The server does not remember what you loaded.
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
 - Subagents must not call save_session_checkpoint: they share the parent session's checkpoint, so a save would overwrite it. Report progress to the parent agent instead.
-- If a save returns a session id, pass it as session on every later checkpoint call in this conversation.
+- If a save result has sessionSource "minted" or "argument", pass its session id as session on every later checkpoint call in this conversation. When sessionSource is "env" (Claude Code), omit session.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
 function createServer(options = {}) {
   const server = new McpServer({ name: GENERATOR.name, version: GENERATOR.version }, { instructions: INSTRUCTIONS });
@@ -37766,8 +37764,8 @@ function log(message) {
 `);
 }
 async function main() {
-  const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID);
   const idMode = resolveIdMode(process.env.CHECKPOINT_SESSION_IDS);
+  const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID, idMode.mint);
   const warning = [session.warning, idMode.warning].filter((w) => w !== void 0).join(" ");
   const server = createServer({ sessionId: session.id, mintSessionIds: idMode.mint, ...warning ? { sessionWarning: warning } : {} });
   const transport = new StdioServerTransport();

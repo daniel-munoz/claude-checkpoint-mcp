@@ -174,7 +174,9 @@ describe("load and list with a session argument", () => {
   it("rejects a conflicting session on load and list", async () => {
     const dir = tempDir();
     const c = await connect("env1");
-    expect((await load(c, dir, { session: "other" })).result.isError).toBe(true);
-    expect((await list(c, dir, { session: "other" })).result.isError).toBe(true);
+    for (const r of [await load(c, dir, { session: "other" }), await list(c, dir, { session: "other" })]) {
+      expect(r.result.isError).toBe(true);
+      expect(r.text).toContain("names a different one");
+    }
   });
 });

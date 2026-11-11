@@ -9,7 +9,7 @@ Persists session context to a checkpoint file in the project so work survives cr
 - After loading another session's checkpoint, pass its selector as \`resumedFrom\` on your next save_session_checkpoint call, so the save builds on it. The server does not remember what you loaded.
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
 - Subagents must not call save_session_checkpoint: they share the parent session's checkpoint, so a save would overwrite it. Report progress to the parent agent instead.
-- If a save returns a session id, pass it as session on every later checkpoint call in this conversation.
+- If a save result has sessionSource "minted" or "argument", pass its session id as session on every later checkpoint call in this conversation. When sessionSource is "env" (Claude Code), omit session.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
 
 export interface ServerOptions {
