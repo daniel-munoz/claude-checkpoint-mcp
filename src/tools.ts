@@ -43,8 +43,12 @@ export interface SessionConfig {
 }
 
 const LOST_ID_HINT = "If you saved earlier in this conversation, pass the session id that save returned.";
+// Also shown to an agent that already saved and lost track of its id (e.g. after compaction), so it must
+// not claim the caller has no id: its id is its own checkpoint's selector (#47).
 const NO_ID_NOTE =
-  "This client has no session id: your first save will return one; pass it as session on every later checkpoint call.";
+  "No session id was passed. If you saved earlier in this conversation, pass that save's session id as session; " +
+  "it is also the selector of your checkpoint in list_session_checkpoints. " +
+  "Otherwise your first save will return one; pass it as session on every later checkpoint call.";
 
 /** Upper bound on git-detected files hashed per save; beyond this, drift falls back to diff vs HEAD. */
 const MAX_HASHED_CHANGES = 500;
@@ -380,7 +384,9 @@ function candidates(root: string, file: string, listing: Listing, ctx: LoadConte
   const warnings = [...ctx.sessionWarnings, ...listing.warnings];
   const text = withNote(
     [
-      `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. ` +
+      (ctx.session === null
+        ? `No session id was passed, so no checkpoint was loaded. ${listing.total} checkpoint(s) exist in ${root}. `
+        : `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. `) +
         "Show this list to the user and ask which one to resume (or whether to start fresh); then call " +
         "load_session_checkpoint with `checkpoint` set to the chosen selector. Do not choose one yourself.",
       "",

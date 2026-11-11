@@ -11,7 +11,12 @@ import { makeCheckpoint, tempDir } from "./helpers.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PASS_LINE = "on every later checkpoint call in this conversation.";
-const NO_ID_NOTE = "This client has no session id: your first save will return one; pass it as session on every later checkpoint call.";
+const NO_ID_NOTE =
+  "No session id was passed. If you saved earlier in this conversation, pass that save's session id as session; " +
+  "it is also the selector of your checkpoint in list_session_checkpoints. " +
+  "Otherwise your first save will return one; pass it as session on every later checkpoint call.";
+const NO_ID_HEADER = "No session id was passed, so no checkpoint was loaded.";
+const OWN_HEADER = "This session has no checkpoint in";
 const LOST_ID = "If you saved earlier in this conversation, pass the session id that save returned.";
 
 let clients: Client[] = [];
@@ -178,5 +183,40 @@ describe("load and list with a session argument", () => {
       expect(r.result.isError).toBe(true);
       expect(r.text).toContain("names a different one");
     }
+  });
+});
+
+describe("wording for a caller without a session id (#47)", () => {
+  it("points a caller that may have saved already to its own id, on load and list", async () => {
+    const dir = tempDir();
+    seed(dir, "a1", "mine");
+    const c = await connect(null, true);
+    expect((await load(c, dir)).text).toContain(NO_ID_NOTE);
+    expect((await list(c, dir)).text).toContain(NO_ID_NOTE);
+  });
+
+  it("doesn't call the caller 'this session' in the list header when no id was passed", async () => {
+    const dir = tempDir();
+    seed(dir, "a1", "mine");
+    const { text } = await load(await connect(null, true), dir);
+    expect(text).toContain(`${NO_ID_HEADER} 1 checkpoint(s) exist in ${dir}.`);
+    expect(text).not.toContain(OWN_HEADER);
+  });
+
+  it("uses the no-id header without minting too, when only session slots exist", async () => {
+    const dir = tempDir();
+    seed(dir, "a1", "mine");
+    const { text } = await load(await connect(null), dir);
+    expect(text).toContain(NO_ID_HEADER);
+    expect(text).not.toContain(NO_ID_NOTE);
+  });
+
+  it("keeps the session header when the env var names the session", async () => {
+    const dir = tempDir();
+    seed(dir, "a1", "theirs");
+    const { text } = await load(await connect("env1", true), dir);
+    expect(text).toContain(`${OWN_HEADER} ${dir}, but 1 other checkpoint(s) exist.`);
+    expect(text).not.toContain(NO_ID_HEADER);
+    expect(text).not.toContain("No session id was passed");
   });
 });

@@ -37407,7 +37407,7 @@ var listTool = {
 
 // src/tools.ts
 var LOST_ID_HINT = "If you saved earlier in this conversation, pass the session id that save returned.";
-var NO_ID_NOTE = "This client has no session id: your first save will return one; pass it as session on every later checkpoint call.";
+var NO_ID_NOTE = "No session id was passed. If you saved earlier in this conversation, pass that save's session id as session; it is also the selector of your checkpoint in list_session_checkpoints. Otherwise your first save will return one; pass it as session on every later checkpoint call.";
 var MAX_HASHED_CHANGES = 500;
 var CLIENT_ROOTS_TIMEOUT_MS = 2e3;
 var CHECKPOINT_FILES = /* @__PURE__ */ new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
@@ -37634,7 +37634,7 @@ function candidates(root, file2, listing, ctx) {
   const warnings = [...ctx.sessionWarnings, ...listing.warnings];
   const text = withNote(
     [
-      `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. Show this list to the user and ask which one to resume (or whether to start fresh); then call load_session_checkpoint with \`checkpoint\` set to the chosen selector. Do not choose one yourself.`,
+      (ctx.session === null ? `No session id was passed, so no checkpoint was loaded. ${listing.total} checkpoint(s) exist in ${root}. ` : `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. `) + "Show this list to the user and ask which one to resume (or whether to start fresh); then call load_session_checkpoint with `checkpoint` set to the chosen selector. Do not choose one yourself.",
       "",
       renderListing(listing),
       ...warnings.map((w) => `\u26A0 ${w}`)
