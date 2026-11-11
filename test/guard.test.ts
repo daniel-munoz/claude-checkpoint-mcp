@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { guard } from "../src/guard.js";
 
@@ -56,12 +58,32 @@ describe("plugin hook registration", () => {
   it("runs the plugin hook before saves, under either server name", () => {
     expect(matches(PLUGIN_SAVE)).toBe(true);
     expect(matches(MANUAL_SAVE)).toBe(true);
-    expect(entries.every((e) => e.hooks.every((h) => h.command.includes("dist/hook.js")))).toBe(true);
+    expect(entries.every((e) => e.hooks.every((h) => h.command.includes("dist/guard.js")))).toBe(true);
   });
 
   it("doesn't run before other tools", () => {
     expect(matches(PLUGIN_LOAD)).toBe(false);
     expect(matches("Bash")).toBe(false);
     expect(matches("mcp__other__save_session_checkpoint_v2")).toBe(false);
+  });
+});
+
+// plugin/dist is committed (CI checks it matches the source), so the built script is always there.
+describe("built guard", () => {
+  const script = path.resolve("plugin/dist/guard.js");
+  const run = (input: string) => execFileSync(process.execPath, [script], { input, encoding: "utf8", env: { PATH: process.env.PATH } });
+
+  it("stays small: no zod or server code in the bundle", () => {
+    expect(statSync(script).size).toBeLessThan(20 * 1024);
+  });
+
+  it("denies a subagent's save and prints nothing for the main session's", () => {
+    expect(JSON.parse(run(JSON.stringify(subagent))).hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(run(JSON.stringify(main))).toBe("");
+  });
+
+  it("prints nothing for unreadable input, so the save goes ahead", () => {
+    expect(run("not json")).toBe("");
+    expect(run("")).toBe("");
   });
 });

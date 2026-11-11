@@ -234,11 +234,11 @@ The manual setup (`claude mcp add`) doesn't install the hook. To get the nudge w
 
 Subagents run inside the parent session and share its MCP server, so they also share its session id. Without a guard, a subagent that calls `save_session_checkpoint` would overwrite the **parent's** checkpoint, and with `mode: "replace"` it would leave only its own narrow subtask behind.
 
-The plugin ships a `PreToolUse` hook for this (same file and script as the nudge, matched on `^mcp__.+__save_session_checkpoint$`). When the call comes from a subagent, it denies the save and tells the subagent to report its progress to the parent instead. Saves from the main session, and every load and list call, go through untouched. The server instructions and the save tool's description say the same, for clients without the hook.
+The plugin ships a `PreToolUse` hook for this (`plugin/hooks/hooks.json`, running `node dist/guard.js`, matched on `^mcp__.+__save_session_checkpoint$`). When the call comes from a subagent, it denies the save and tells the subagent to report its progress to the parent instead. Saves from the main session, and every load and list call, go through untouched. The server instructions and the save tool's description say the same, for clients without the hook.
 
 It recognizes a subagent by the `agent_id` field Claude Code adds to hook input inside subagents (verified on Claude Code 2.1.322). `agent_type` alone isn't used, because a main session started with `--agent` has it too. On a Claude Code version that doesn't send `agent_id`, or if the hook fails for any reason, the save goes ahead, so the hook never blocks the main session.
 
-The manual setup (`claude mcp add`) doesn't install it. To add it without the plugin, register `node /absolute/path/to/claude-checkpoint-mcp/dist/hook.js` as a `PreToolUse` command hook with that matcher in `settings.json`.
+The manual setup (`claude mcp add`) doesn't install it. To add it without the plugin, register `node /absolute/path/to/claude-checkpoint-mcp/dist/guard.js` as a `PreToolUse` command hook with that matcher in `settings.json`.
 
 ### Claude Desktop (`claude_desktop_config.json`)
 
@@ -636,14 +636,17 @@ Server logs go to **stderr**. Stdout is reserved for the MCP protocol.
 ```sh
 npm run typecheck   # strict TypeScript, src + tests
 npm test            # unit tests + in-memory MCP end-to-end tests (vitest)
-npm run build       # compile dist/index.js (server) and dist/hook.js (hook), and copy them to plugin/dist
+npm run build       # compile dist/index.js (server), dist/hook.js (nudge) and dist/guard.js (guard), and copy them to plugin/dist
 npm run inspect     # open the MCP Inspector against dist/index.js
 ```
 
 ```
 src/
 ├── index.ts    # entry point: stdio transport, signals, stderr logging
-├── hook.ts     # entry point of the plugin's SessionStart hook
+├── hook.ts     # entry point of the plugin's SessionStart hook (dist/hook.js)
+├── guard-hook.ts # entry point of the plugin's PreToolUse subagent guard (dist/guard.js)
+├── guard.ts    # subagent guard: denies saves from subagents
+├── hookInput.ts # reads hook input from stdin (shared by both hooks)
 ├── nudge.ts    # session-start nudge: finds checkpoint files without reading them
 ├── server.ts   # McpServer construction + server instructions
 ├── tools.ts    # save/load/list tool schemas and handlers

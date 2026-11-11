@@ -28639,7 +28639,7 @@ var package_default = {
     node: ">=20"
   },
   scripts: {
-    build: "tsc --noEmit && esbuild src/index.ts src/hook.ts --bundle --platform=node --target=node20 --format=esm --outdir=dist && chmod +x dist/index.js dist/hook.js && mkdir -p plugin/dist && cp dist/index.js dist/hook.js plugin/dist/",
+    build: "tsc --noEmit && esbuild src/index.ts src/hook.ts guard=src/guard-hook.ts --bundle --platform=node --target=node20 --format=esm --outdir=dist && chmod +x dist/index.js dist/hook.js dist/guard.js && mkdir -p plugin/dist && cp dist/index.js dist/hook.js dist/guard.js plugin/dist/",
     dev: "esbuild src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/index.js --watch",
     typecheck: "tsc --noEmit && tsc -p tsconfig.test.json",
     test: "vitest run",
