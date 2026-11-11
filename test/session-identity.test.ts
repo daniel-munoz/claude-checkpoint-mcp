@@ -1,16 +1,17 @@
 // The per-call `session` argument and opt-in id minting (#41, design: 2026-11-10-session-identity-design.md).
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "../src/server.js";
-import { checkpointPath, selectorPath } from "../src/store.js";
-import { tempDir } from "./helpers.js";
+import { checkpointPath, selectorPath, serialize } from "../src/store.js";
+import { makeCheckpoint, tempDir } from "./helpers.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PASS_LINE = "on every later checkpoint call in this conversation.";
+const NO_ID_NOTE = "This client has no session id: your first save will return one; pass it as session on every later checkpoint call.";
 const LOST_ID = "If you saved earlier in this conversation, pass the session id that save returned.";
 
 let clients: Client[] = [];
@@ -122,5 +123,58 @@ describe("save with a session argument and minting", () => {
     }
     expect(existsSync(slotsDir(dir))).toBe(false);
     expect(existsSync(checkpointPath(dir))).toBe(false);
+  });
+});
+
+/** Writes a checkpoint file directly, as another session (or 0.1.x, for "legacy") would have. */
+function seed(root: string, selector: string, goal: string): void {
+  const file = selectorPath(root, selector);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, serialize(makeCheckpoint({ goal: { primary: goal, tasks: [] }, ...(selector === "legacy" ? {} : { sessionId: selector }) })));
+}
+
+const load = (c: Client, dir: string, args: Record<string, unknown> = {}) =>
+  callAs(c, "load_session_checkpoint", { projectRoot: dir, ...args });
+const list = (c: Client, dir: string, args: Record<string, unknown> = {}) =>
+  callAs(c, "list_session_checkpoints", { projectRoot: dir, limit: 0, ...args });
+
+describe("load and list with a session argument", () => {
+  it("loads the passed session's own checkpoint", async () => {
+    const dir = tempDir();
+    seed(dir, "a1", "mine");
+    const { data } = await load(await connect(null), dir, { session: "a1" });
+    expect(data).toMatchObject({ found: true, selector: "a1", session: "a1" });
+  });
+
+  it("lists instead of auto-loading the legacy file when minting", async () => {
+    const dir = tempDir();
+    seed(dir, "legacy", "old");
+    const { data, text } = await load(await connect(null, true), dir);
+    expect(data.found).toBe(false);
+    expect(data.candidates[0].selector).toBe("legacy");
+    expect(text).toContain(NO_ID_NOTE);
+  });
+
+  it("still auto-loads the legacy file without the flag", async () => {
+    const dir = tempDir();
+    seed(dir, "legacy", "old");
+    const { data } = await load(await connect(null), dir);
+    expect(data).toMatchObject({ found: true, selector: "legacy" });
+  });
+
+  it("marks the passed session as current in the list", async () => {
+    const dir = tempDir();
+    seed(dir, "a1", "one");
+    seed(dir, "b2", "two");
+    const { data } = await list(await connect(null), dir, { session: "b2" });
+    const current = data.entries.filter((e: { isCurrentSession: boolean }) => e.isCurrentSession).map((e: { selector: string }) => e.selector);
+    expect(current).toEqual(["b2"]);
+  });
+
+  it("rejects a conflicting session on load and list", async () => {
+    const dir = tempDir();
+    const c = await connect("env1");
+    expect((await load(c, dir, { session: "other" })).result.isError).toBe(true);
+    expect((await list(c, dir, { session: "other" })).result.isError).toBe(true);
   });
 });

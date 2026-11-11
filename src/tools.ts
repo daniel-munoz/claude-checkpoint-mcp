@@ -43,6 +43,8 @@ export interface SessionConfig {
 }
 
 const LOST_ID_HINT = "If you saved earlier in this conversation, pass the session id that save returned.";
+const NO_ID_NOTE =
+  "This client has no session id: your first save will return one; pass it as session on every later checkpoint call.";
 
 /** Upper bound on git-detected files hashed per save; beyond this, drift falls back to diff vs HEAD. */
 const MAX_HASHED_CHANGES = 500;
@@ -314,9 +316,15 @@ async function readResumed(file: string, selector: string, warnings: string[]): 
 }
 
 async function load(args: LoadArgs, config: SessionConfig, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
+  const call = resolveCallSession(args.session, config.envId);
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const sessionWarnings = config.warning ? [config.warning] : [];
-  const own = config.envId ?? LEGACY_SELECTOR;
+  const ctx: LoadContext = {
+    sessionWarnings: config.warning ? [config.warning] : [],
+    session: call.id,
+    note: noIdNote(call, config),
+  };
+  // With minting on, a caller without an id has no checkpoint of its own: the legacy file is one more to pick from.
+  const own = call.id ?? (config.mint ? null : LEGACY_SELECTOR);
 
   if (args.checkpoint !== undefined) {
     const file = selectorPath(root, args.checkpoint);
@@ -328,35 +336,59 @@ async function load(args: LoadArgs, config: SessionConfig, clientRoot: () => Pro
       args.checkpoint === own
         ? undefined
         : `To continue from this checkpoint, pass \`resumedFrom: ${JSON.stringify(args.checkpoint)}\` on your next save_session_checkpoint call.`;
-    return loaded({ root, selector: args.checkpoint, file, result, format: args.format, sessionWarnings, resumeHint });
+    return loaded({ root, selector: args.checkpoint, file, result, format: args.format, resumeHint }, ctx);
   }
 
   // An unreadable own checkpoint shows up in the list below (marked unreadable) rather than failing the call.
-  const file = selectorPath(root, own);
-  const result = await readCheckpoint(file).catch(() => null);
-  if (result !== null) return loaded({ root, selector: own, file, result, format: args.format, sessionWarnings });
+  const file = own === null ? path.join(root, SLOTS_DIRNAME) : selectorPath(root, own);
+  if (own !== null) {
+    const result = await readCheckpoint(file).catch(() => null);
+    if (result !== null) return loaded({ root, selector: own, file, result, format: args.format }, ctx);
+  }
 
-  const listing = await listCheckpoints(root, config.envId, DEFAULT_LIST_LIMIT);
+  const listing = await listCheckpoints(root, call.id, DEFAULT_LIST_LIMIT);
   if (listing.total === 0) {
+    const text = withNote(`No checkpoint found at ${file}. Nothing to resume; start fresh.`, ctx.note);
     return {
-      content: [{ type: "text", text: `No checkpoint found at ${file}. Nothing to resume; start fresh.` }],
-      structuredContent: { found: false, path: file, warnings: sessionWarnings },
+      content: [{ type: "text", text }],
+      structuredContent: { found: false, path: file, warnings: ctx.sessionWarnings, ...sessionField(ctx) },
     };
   }
-  return candidates(root, file, listing, sessionWarnings);
+  return candidates(root, file, listing, ctx);
 }
 
+/** What every load result carries besides the checkpoint or list: the caller's id, its note and warnings. */
+interface LoadContext {
+  sessionWarnings: string[];
+  session: string | null;
+  /** Set for a caller with no id while minting is on: how it gets one. */
+  note: string | undefined;
+}
+
+function noIdNote(call: CallSession, config: SessionConfig): string | undefined {
+  return call.id === null && config.mint ? NO_ID_NOTE : undefined;
+}
+
+function withNote(text: string, note: string | undefined): string {
+  return note === undefined ? text : `${text}\n\n${note}`;
+}
+
+const sessionField = (ctx: LoadContext) => (ctx.session === null ? {} : { session: ctx.session });
+
 /** The "pick one" result: this session has no checkpoint, but others exist in the project. */
-function candidates(root: string, file: string, listing: Listing, sessionWarnings: string[]): CallToolResult {
-  const warnings = [...sessionWarnings, ...listing.warnings];
-  const text = [
-    `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. ` +
-      "Show this list to the user and ask which one to resume (or whether to start fresh); then call " +
-      "load_session_checkpoint with `checkpoint` set to the chosen selector. Do not choose one yourself.",
-    "",
-    renderListing(listing),
-    ...warnings.map((w) => `⚠ ${w}`),
-  ].join("\n");
+function candidates(root: string, file: string, listing: Listing, ctx: LoadContext): CallToolResult {
+  const warnings = [...ctx.sessionWarnings, ...listing.warnings];
+  const text = withNote(
+    [
+      `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. ` +
+        "Show this list to the user and ask which one to resume (or whether to start fresh); then call " +
+        "load_session_checkpoint with `checkpoint` set to the chosen selector. Do not choose one yourself.",
+      "",
+      renderListing(listing),
+      ...warnings.map((w) => `⚠ ${w}`),
+    ].join("\n"),
+    ctx.note,
+  );
   return {
     content: [{ type: "text", text }],
     structuredContent: {
@@ -366,6 +398,7 @@ function candidates(root: string, file: string, listing: Listing, sessionWarning
       total: listing.total,
       omitted: listing.omitted,
       warnings,
+      ...sessionField(ctx),
       // As with the brief, clients may show the model only structuredContent, so the instructions go here too.
       text,
     },
@@ -378,14 +411,13 @@ interface Loaded {
   file: string;
   result: LoadResult;
   format: "brief" | "full";
-  sessionWarnings: string[];
   /** Set when the session loaded a checkpoint other than its own: what to pass on its next save. */
   resumeHint?: string | undefined;
 }
 
-async function loaded({ root, selector, file, result, format, sessionWarnings, resumeHint }: Loaded): Promise<CallToolResult> {
+async function loaded({ root, selector, file, result, format, resumeHint }: Loaded, ctx: LoadContext): Promise<CallToolResult> {
   const { checkpoint, fromBackup } = result;
-  const warnings = [...sessionWarnings, ...result.warnings];
+  const warnings = [...ctx.sessionWarnings, ...result.warnings];
   let drift: Drift | null = null;
   if (checkpoint.git) {
     const savedHashes = new Map(
@@ -398,7 +430,7 @@ async function loaded({ root, selector, file, result, format, sessionWarnings, r
   const text =
     format === "full"
       ? JSON.stringify({ checkpoint, drift, warnings, ...hint }, null, 2)
-      : [...(resumeHint === undefined ? [] : [`> ${resumeHint}`, ""]), renderBrief(checkpoint, drift, warnings)].join("\n");
+      : withNote([...(resumeHint === undefined ? [] : [`> ${resumeHint}`, ""]), renderBrief(checkpoint, drift, warnings)].join("\n"), ctx.note);
 
   return {
     content: [{ type: "text", text }],
@@ -411,6 +443,7 @@ async function loaded({ root, selector, file, result, format, sessionWarnings, r
       drift,
       warnings,
       ...hint,
+      ...sessionField(ctx),
       // Some clients (Claude Code) show the model structuredContent instead of the text content,
       // so the brief has to be here too or the model never sees it.
       ...(format === "full" ? { checkpoint } : { brief: text }),
@@ -419,13 +452,16 @@ async function loaded({ root, selector, file, result, format, sessionWarnings, r
 }
 
 async function list(args: ListArgs, config: SessionConfig, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
+  const call = resolveCallSession(args.session, config.envId);
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const listing = await listCheckpoints(root, config.envId, args.limit);
+  const listing = await listCheckpoints(root, call.id, args.limit);
   const warnings = [...(config.warning ? [config.warning] : []), ...listing.warnings];
-  const text =
+  const text = withNote(
     listing.total === 0
       ? `No checkpoints in ${root}.`
-      : [`${listing.total} checkpoint(s) in ${root}, newest first:`, "", renderListing(listing), ...warnings.map((w) => `⚠ ${w}`)].join("\n");
+      : [`${listing.total} checkpoint(s) in ${root}, newest first:`, "", renderListing(listing), ...warnings.map((w) => `⚠ ${w}`)].join("\n"),
+    noIdNote(call, config),
+  );
   return {
     content: [{ type: "text", text }],
     structuredContent: { path: root, entries: listing.entries, total: listing.total, omitted: listing.omitted, warnings, text },

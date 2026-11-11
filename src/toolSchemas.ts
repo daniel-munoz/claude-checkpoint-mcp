@@ -95,6 +95,7 @@ const loadInput = {
     .string()
     .optional()
     .describe("Which checkpoint to load, as a selector from list_session_checkpoints: a session id, or 'legacy'. Omit to load this session's own checkpoint."),
+  session: sessionArg,
   projectRoot: projectRootArg,
 };
 
@@ -118,6 +119,7 @@ const listInput = {
     .min(0)
     .default(DEFAULT_LIST_LIMIT)
     .describe("Maximum number of checkpoints to return, newest first. 0 returns all of them."),
+  session: sessionArg,
   projectRoot: projectRootArg,
 };
 
@@ -150,6 +152,7 @@ const loadOutput = {
     .optional(),
   warnings: z.array(z.string()),
   resumeHint: z.string().optional(),
+  session: z.string().optional(),
   brief: z.string().optional(),
   text: z.string().optional(),
   checkpoint: z.record(z.string(), z.unknown()).optional(),
