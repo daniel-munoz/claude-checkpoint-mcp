@@ -1,0 +1,37 @@
+# Fails on a moderate-or-higher advisory in the runtime dependencies (the ones npm installs for users),
+# so vulnerable transitive dependencies show up here before an external scanner flags them (#33).
+# Advisories can appear against an unchanged lockfile, so this also runs weekly on main: a new one
+# shows up there rather than first failing an unrelated pull request.
+
+name: Audit
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: "17 6 * * 1"   # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Node
+      uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+
+    - name: Install
+      run: npm ci
+
+    - name: Audit runtime dependencies
+      run: npm audit --omit=dev --audit-level=moderate
