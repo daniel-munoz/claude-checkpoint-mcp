@@ -49,7 +49,7 @@ function seededRepo(): string {
 }
 
 describe("tools over MCP", () => {
-  it("lists both tools with schemas and annotations", async () => {
+  it("lists the three tools and sends the server instructions (full contract: contract.test.ts)", async () => {
     const { tools } = await client.listTools();
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
     expect(Object.keys(byName).sort()).toEqual(["list_session_checkpoints", "load_session_checkpoint", "save_session_checkpoint"]);
