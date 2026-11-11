@@ -37010,6 +37010,23 @@ function resolveSessionId(raw) {
     warning: "CLAUDE_CODE_SESSION_ID is not a usable session id; checkpoints are using the shared .claude-checkpoint file."
   };
 }
+function resolveCallSession(arg, envId) {
+  if (arg === void 0) return envId === null ? { id: null, source: null } : { id: envId, source: "env" };
+  if (!SESSION_ID_PATTERN.test(arg) || arg === LEGACY_SELECTOR) {
+    throw new CheckpointError(`session must be a session id (letters, digits, "-" and "_", up to 128), not ${JSON.stringify(arg)}`);
+  }
+  if (envId === null) return { id: arg, source: "argument" };
+  if (arg === envId) return { id: envId, source: "env" };
+  throw new CheckpointError(
+    `This server runs for session ${JSON.stringify(envId)}; session: ${JSON.stringify(arg)} names a different one. To continue another checkpoint, load it and pass its selector as resumedFrom on your next save.`
+  );
+}
+function resolveIdMode(raw) {
+  const value = (raw ?? "").trim().toLowerCase();
+  if (value === "mint") return { mint: true };
+  if (value === "" || value === "legacy") return { mint: false };
+  return { mint: false, warning: `CHECKPOINT_SESSION_IDS must be "mint" or "legacy"; got ${JSON.stringify(raw)}. Using legacy.` };
+}
 
 // src/store.ts
 import { randomBytes } from "node:crypto";
@@ -37274,6 +37291,9 @@ function createRedactor() {
 // src/toolSchemas.ts
 var DEFAULT_LIST_LIMIT = 10;
 var projectRootArg = external_exports.string().optional().describe("Absolute path of the project. Defaults to the client's workspace root or the server's working directory.");
+var sessionArg = external_exports.string().optional().describe(
+  "This conversation's session id, as returned by an earlier save. Omit on Claude Code. Not for picking a checkpoint to read: use load_session_checkpoint's checkpoint, then resumedFrom."
+);
 var saveInput = {
   goal: external_exports.string().min(1).max(LIMITS.goal).describe("The primary objective of the session, in one or two sentences."),
   tasks: external_exports.array(external_exports.strictObject(Task.shape)).max(LIMITS.tasks).optional().describe("Sub-goals with their status. In merge mode, tasks with the same description are updated."),
@@ -37292,6 +37312,7 @@ var saveInput = {
   resumedFrom: external_exports.string().max(128).optional().describe(
     "Selector of the checkpoint this session resumed from, as given by load_session_checkpoint. Pass it on the first save after loading another session's checkpoint: a merge save then builds on it, and the link is recorded. Ignored once this session has its own checkpoint."
   ),
+  session: sessionArg,
   projectRoot: projectRootArg
 };
 var saveOutput = {
@@ -37304,11 +37325,14 @@ var saveOutput = {
     recentCommands: external_exports.number(),
     redactions: external_exports.number()
   }),
-  warnings: external_exports.array(external_exports.string())
+  warnings: external_exports.array(external_exports.string()),
+  session: external_exports.string().optional(),
+  sessionSource: external_exports.enum(["argument", "env", "minted"]).optional()
 };
 var loadInput = {
   format: external_exports.enum(["brief", "full"]).default("brief").describe("brief: compact markdown for resuming (recommended). full: the complete checkpoint JSON."),
   checkpoint: external_exports.string().optional().describe("Which checkpoint to load, as a selector from list_session_checkpoints: a session id, or 'legacy'. Omit to load this session's own checkpoint."),
+  session: sessionArg,
   projectRoot: projectRootArg
 };
 var listEntryOutput = external_exports.object({
@@ -37325,6 +37349,7 @@ var listEntryOutput = external_exports.object({
 });
 var listInput = {
   limit: external_exports.number().int().min(0).default(DEFAULT_LIST_LIMIT).describe("Maximum number of checkpoints to return, newest first. 0 returns all of them."),
+  session: sessionArg,
   projectRoot: projectRootArg
 };
 var listOutput = {
@@ -37352,6 +37377,7 @@ var loadOutput = {
   }).nullable().optional(),
   warnings: external_exports.array(external_exports.string()),
   resumeHint: external_exports.string().optional(),
+  session: external_exports.string().optional(),
   brief: external_exports.string().optional(),
   text: external_exports.string().optional(),
   checkpoint: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
@@ -37361,7 +37387,7 @@ var loadSchema = external_exports.strictObject(loadInput);
 var listSchema = external_exports.strictObject(listInput);
 var saveTool = {
   title: "Save session checkpoint",
-  description: "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project (.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically. Subagents must not call this: they share the parent session's checkpoint. Report progress to the parent instead.",
+  description: "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project (.claude-checkpoints/<session-id>.json, or .claude-checkpoint when there is no session id), so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically. Subagents must not call this: they share the parent session's checkpoint. Report progress to the parent instead.",
   inputSchema: saveSchema,
   outputSchema: saveOutput,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
@@ -37382,11 +37408,13 @@ var listTool = {
 };
 
 // src/tools.ts
+var LOST_ID_HINT = "If you saved earlier in this conversation, pass the session id that save returned.";
+var NO_ID_NOTE = "This client has no session id: your first save will return one; pass it as session on every later checkpoint call.";
 var MAX_HASHED_CHANGES = 500;
 var CLIENT_ROOTS_TIMEOUT_MS = 2e3;
 var CHECKPOINT_FILES = /* @__PURE__ */ new Set([CHECKPOINT_FILENAME, CHECKPOINT_FILENAME + BACKUP_SUFFIX]);
 var isCheckpointFile = (p) => CHECKPOINT_FILES.has(p) || p.startsWith(`${CHECKPOINT_FILENAME}.tmp-`) || p.startsWith(`${SLOTS_DIRNAME}/`);
-function registerTools(server, session) {
+function registerTools(server, config2) {
   let queue = Promise.resolve();
   const serialized = (fn) => {
     const next = queue.then(() => guard(fn));
@@ -37398,9 +37426,9 @@ function registerTools(server, session) {
     const { roots } = await server.server.listRoots(void 0, { timeout: CLIENT_ROOTS_TIMEOUT_MS });
     return roots.map((r) => rootUriToPath(r.uri)).find((p) => p !== void 0);
   };
-  server.registerTool("save_session_checkpoint", saveTool, (args) => serialized(() => save(args, session, clientRoot)));
-  server.registerTool("load_session_checkpoint", loadTool, (args) => serialized(() => load(args, session, clientRoot)));
-  server.registerTool("list_session_checkpoints", listTool, (args) => serialized(() => list(args, session, clientRoot)));
+  server.registerTool("save_session_checkpoint", saveTool, (args) => serialized(() => save(args, config2, clientRoot)));
+  server.registerTool("load_session_checkpoint", loadTool, (args) => serialized(() => load(args, config2, clientRoot)));
+  server.registerTool("list_session_checkpoints", listTool, (args) => serialized(() => list(args, config2, clientRoot)));
 }
 async function guard(fn) {
   try {
@@ -37410,24 +37438,26 @@ async function guard(fn) {
     return { isError: true, content: [{ type: "text", text: `Checkpoint error: ${message}` }] };
   }
 }
-async function save(args, session, clientRoot) {
+async function save(args, config2, clientRoot) {
+  let call = resolveCallSession(args.session, config2.envId);
+  if (call.id === null && config2.mint) call = { id: randomUUID(), source: "minted" };
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const warnings = session.warning ? [session.warning] : [];
-  const target = await saveBase(root, session, args.resumedFrom, args.mode, warnings);
+  const warnings = config2.warning ? [config2.warning] : [];
+  const target = await saveBase(root, call, args.resumedFrom, args.mode, warnings);
   const git2 = await snapshot(root, MAX_HASHED_CHANGES);
-  const checkpoint = buildCheckpoint({ args, root, session, target, git: git2, redactor: createRedactor(), warnings });
+  const checkpoint = buildCheckpoint({ args, root, sessionId: call.id, target, git: git2, redactor: createRedactor(), warnings });
   const bytes = await writeCheckpoint(target.file, checkpoint);
-  await warnIfNotIgnored(root, target.file, session, warnings);
-  return saveResult(target.file, bytes, args.mode, checkpoint, warnings);
+  await warnIfNotIgnored(root, target.file, call.id, warnings);
+  return saveResult(target.file, bytes, args.mode, checkpoint, warnings, call);
 }
 function buildCheckpoint(input2) {
-  const { args, root, session, target, git: git2, redactor, warnings } = input2;
+  const { args, root, sessionId, target, git: git2, redactor, warnings } = input2;
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const base = target.previous?.checkpoint;
   const content = mergeContent(input2, base, now);
   const files = recordFiles(input2, base);
   const checkpoint = {
-    ...identity(target, root, session, now),
+    ...identity(target, root, sessionId, now),
     git: git2?.state ?? null,
     goal: { primary: redactor.scrub(args.goal), tasks: content.tasks },
     summary: content.summary,
@@ -37441,7 +37471,7 @@ function buildCheckpoint(input2) {
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
   return checkpoint;
 }
-function identity(target, root, session, now) {
+function identity(target, root, sessionId, now) {
   const own2 = target.continuing ? target.previous?.checkpoint : void 0;
   return {
     version: CHECKPOINT_VERSION,
@@ -37450,7 +37480,7 @@ function identity(target, root, session, now) {
     updatedAt: now,
     generator: { ...GENERATOR },
     project: { name: path4.basename(root) },
-    ...session.id !== null ? { sessionId: session.id } : {},
+    ...sessionId !== null ? { sessionId } : {},
     ...target.resumedFrom !== void 0 ? { resumedFrom: target.resumedFrom } : {}
   };
 }
@@ -37489,12 +37519,12 @@ function recordFiles({ root, git: git2, args, redactor, warnings }, base) {
   if (truncated) warnings.push(`Only the first ${LIMITS.modifiedFiles} of ${files.length} modified files were recorded.`);
   return { modifiedFiles: files.slice(0, LIMITS.modifiedFiles), truncated };
 }
-async function warnIfNotIgnored(root, file2, session, warnings) {
+async function warnIfNotIgnored(root, file2, sessionId, warnings) {
   if (await isIgnored(root, path4.relative(root, file2).split(path4.sep).join("/")) !== false) return;
-  const shown = session.id !== null ? `${SLOTS_DIRNAME}/` : CHECKPOINT_FILENAME;
+  const shown = sessionId !== null ? `${SLOTS_DIRNAME}/` : CHECKPOINT_FILENAME;
   warnings.push(`${shown} is not git-ignored. Add "${CHECKPOINT_FILENAME}*" to .gitignore to avoid committing it.`);
 }
-function saveResult(file2, bytes, mode, checkpoint, warnings) {
+function saveResult(file2, bytes, mode, checkpoint, warnings, call) {
   const counts = {
     tasks: checkpoint.goal.tasks.length,
     modifiedFiles: checkpoint.modifiedFiles.length,
@@ -37504,12 +37534,21 @@ function saveResult(file2, bytes, mode, checkpoint, warnings) {
   const at = checkpoint.git ? ` on ${checkpoint.git.branch}@${shortSha(checkpoint.git.head)}` : "";
   const text = [
     `Checkpoint saved to ${file2} (${bytes} bytes, ${mode}).`,
+    // The env var resends itself on every call; an id the agent passed or was just given must come back.
+    ...call.source === "argument" || call.source === "minted" ? [`Pass session: ${JSON.stringify(call.id)} on every later checkpoint call in this conversation.`] : [],
     `${counts.tasks} task(s), ${counts.modifiedFiles} file(s), ${counts.recentCommands} command(s)${at}.`,
     ...warnings.map((w) => `\u26A0 ${w}`)
   ].join("\n");
   return {
     content: [{ type: "text", text }],
-    structuredContent: { path: file2, bytes, mode, counts, warnings }
+    structuredContent: {
+      path: file2,
+      bytes,
+      mode,
+      counts,
+      warnings,
+      ...call.id !== null && call.source !== null ? { session: call.id, sessionSource: call.source } : {}
+    }
   };
 }
 async function readOrWarn(file2, selector, warnings) {
@@ -37520,8 +37559,8 @@ async function readOrWarn(file2, selector, warnings) {
     return null;
   }
 }
-async function saveBase(root, session, requested, mode, warnings) {
-  const ownSelector = session.id ?? LEGACY_SELECTOR;
+async function saveBase(root, call, requested, mode, warnings) {
+  const ownSelector = call.id ?? LEGACY_SELECTOR;
   const resumeSelector = requested === ownSelector ? void 0 : requested;
   const resumeFile = resumeSelector === void 0 ? void 0 : selectorPath(root, resumeSelector);
   const file2 = selectorPath(root, ownSelector);
@@ -37533,7 +37572,7 @@ async function saveBase(root, session, requested, mode, warnings) {
     previous = own2 ?? resumed;
     if (previous === null) {
       warnings.push(
-        "No existing checkpoint to merge into; saved a new one." + (requested === void 0 ? " If this session resumed another checkpoint, pass its selector as `resumedFrom`." : "")
+        "No existing checkpoint to merge into; saved a new one." + (call.source === "minted" ? ` ${LOST_ID_HINT}` : "") + (requested === void 0 ? " If this session resumed another checkpoint, pass its selector as `resumedFrom`." : "")
       );
     }
   }
@@ -37551,39 +37590,59 @@ async function readResumed(file2, selector, warnings) {
   if (result === null) warnings.push(`resumedFrom checkpoint ${JSON.stringify(selector)} not found; saved without resuming from it.`);
   return result;
 }
-async function load(args, session, clientRoot) {
+async function load(args, config2, clientRoot) {
+  const call = resolveCallSession(args.session, config2.envId);
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const sessionWarnings = session.warning ? [session.warning] : [];
-  const own2 = session.id ?? LEGACY_SELECTOR;
+  const ctx = {
+    sessionWarnings: config2.warning ? [config2.warning] : [],
+    session: call.id,
+    note: noIdNote(call, config2)
+  };
+  const own2 = call.id ?? (config2.mint ? null : LEGACY_SELECTOR);
   if (args.checkpoint !== void 0) {
     const file3 = selectorPath(root, args.checkpoint);
-    const result2 = await readCheckpoint(file3);
-    if (result2 === null) {
+    const result = await readCheckpoint(file3);
+    if (result === null) {
       throw new CheckpointError(`no checkpoint "${args.checkpoint}" in ${root}. Call list_session_checkpoints to see the available ones.`);
     }
     const resumeHint = args.checkpoint === own2 ? void 0 : `To continue from this checkpoint, pass \`resumedFrom: ${JSON.stringify(args.checkpoint)}\` on your next save_session_checkpoint call.`;
-    return loaded({ root, selector: args.checkpoint, file: file3, result: result2, format: args.format, sessionWarnings, resumeHint });
+    return loaded({ root, selector: args.checkpoint, file: file3, result, format: args.format, resumeHint }, ctx);
   }
-  const file2 = selectorPath(root, own2);
-  const result = await readCheckpoint(file2).catch(() => null);
-  if (result !== null) return loaded({ root, selector: own2, file: file2, result, format: args.format, sessionWarnings });
-  const listing = await listCheckpoints(root, session.id, DEFAULT_LIST_LIMIT);
+  const file2 = own2 === null ? path4.join(root, SLOTS_DIRNAME) : selectorPath(root, own2);
+  if (own2 !== null) {
+    const result = await readCheckpoint(file2).catch(() => null);
+    if (result !== null) return loaded({ root, selector: own2, file: file2, result, format: args.format }, ctx);
+  }
+  const listing = await listCheckpoints(root, call.id, DEFAULT_LIST_LIMIT);
   if (listing.total === 0) {
+    const text = withNote(`No checkpoint found at ${file2}. Nothing to resume; start fresh.`, ctx.note);
     return {
-      content: [{ type: "text", text: `No checkpoint found at ${file2}. Nothing to resume; start fresh.` }],
-      structuredContent: { found: false, path: file2, warnings: sessionWarnings }
+      content: [{ type: "text", text }],
+      structuredContent: { found: false, path: file2, warnings: ctx.sessionWarnings, ...sessionField(ctx) }
     };
   }
-  return candidates(root, file2, listing, sessionWarnings);
+  return candidates(root, file2, listing, ctx);
 }
-function candidates(root, file2, listing, sessionWarnings) {
-  const warnings = [...sessionWarnings, ...listing.warnings];
-  const text = [
-    `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. Show this list to the user and ask which one to resume (or whether to start fresh); then call load_session_checkpoint with \`checkpoint\` set to the chosen selector. Do not choose one yourself.`,
-    "",
-    renderListing(listing),
-    ...warnings.map((w) => `\u26A0 ${w}`)
-  ].join("\n");
+function noIdNote(call, config2) {
+  return call.id === null && config2.mint ? NO_ID_NOTE : void 0;
+}
+function withNote(text, note) {
+  return note === void 0 ? text : `${text}
+
+${note}`;
+}
+var sessionField = (ctx) => ctx.session === null ? {} : { session: ctx.session };
+function candidates(root, file2, listing, ctx) {
+  const warnings = [...ctx.sessionWarnings, ...listing.warnings];
+  const text = withNote(
+    [
+      `This session has no checkpoint in ${root}, but ${listing.total} other checkpoint(s) exist. Show this list to the user and ask which one to resume (or whether to start fresh); then call load_session_checkpoint with \`checkpoint\` set to the chosen selector. Do not choose one yourself.`,
+      "",
+      renderListing(listing),
+      ...warnings.map((w) => `\u26A0 ${w}`)
+    ].join("\n"),
+    ctx.note
+  );
   return {
     content: [{ type: "text", text }],
     structuredContent: {
@@ -37593,14 +37652,15 @@ function candidates(root, file2, listing, sessionWarnings) {
       total: listing.total,
       omitted: listing.omitted,
       warnings,
+      ...sessionField(ctx),
       // As with the brief, clients may show the model only structuredContent, so the instructions go here too.
       text
     }
   };
 }
-async function loaded({ root, selector, file: file2, result, format, sessionWarnings, resumeHint }) {
+async function loaded({ root, selector, file: file2, result, format, resumeHint }, ctx) {
   const { checkpoint, fromBackup } = result;
-  const warnings = [...sessionWarnings, ...result.warnings];
+  const warnings = [...ctx.sessionWarnings, ...result.warnings];
   let drift2 = null;
   if (checkpoint.git) {
     const savedHashes = new Map(
@@ -37609,7 +37669,7 @@ async function loaded({ root, selector, file: file2, result, format, sessionWarn
     drift2 = await drift(root, checkpoint.git, savedHashes, isCheckpointFile);
   }
   const hint = resumeHint === void 0 ? {} : { resumeHint };
-  const text = format === "full" ? JSON.stringify({ checkpoint, drift: drift2, warnings, ...hint }, null, 2) : [...resumeHint === void 0 ? [] : [`> ${resumeHint}`, ""], renderBrief(checkpoint, drift2, warnings)].join("\n");
+  const text = format === "full" ? JSON.stringify({ checkpoint, drift: drift2, warnings, ...hint }, null, 2) : withNote([...resumeHint === void 0 ? [] : [`> ${resumeHint}`, ""], renderBrief(checkpoint, drift2, warnings)].join("\n"), ctx.note);
   return {
     content: [{ type: "text", text }],
     structuredContent: {
@@ -37621,17 +37681,22 @@ async function loaded({ root, selector, file: file2, result, format, sessionWarn
       drift: drift2,
       warnings,
       ...hint,
+      ...sessionField(ctx),
       // Some clients (Claude Code) show the model structuredContent instead of the text content,
       // so the brief has to be here too or the model never sees it.
       ...format === "full" ? { checkpoint } : { brief: text }
     }
   };
 }
-async function list(args, session, clientRoot) {
+async function list(args, config2, clientRoot) {
+  const call = resolveCallSession(args.session, config2.envId);
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const listing = await listCheckpoints(root, session.id, args.limit);
-  const warnings = [...session.warning ? [session.warning] : [], ...listing.warnings];
-  const text = listing.total === 0 ? `No checkpoints in ${root}.` : [`${listing.total} checkpoint(s) in ${root}, newest first:`, "", renderListing(listing), ...warnings.map((w) => `\u26A0 ${w}`)].join("\n");
+  const listing = await listCheckpoints(root, call.id, args.limit);
+  const warnings = [...config2.warning ? [config2.warning] : [], ...listing.warnings];
+  const text = withNote(
+    listing.total === 0 ? `No checkpoints in ${root}.` : [`${listing.total} checkpoint(s) in ${root}, newest first:`, "", renderListing(listing), ...warnings.map((w) => `\u26A0 ${w}`)].join("\n"),
+    noIdNote(call, config2)
+  );
   return {
     content: [{ type: "text", text }],
     structuredContent: { path: root, entries: listing.entries, total: listing.total, omitted: listing.omitted, warnings, text }
@@ -37682,11 +37747,16 @@ var INSTRUCTIONS = `Persists session context to a checkpoint file in the project
 - After loading another session's checkpoint, pass its selector as \`resumedFrom\` on your next save_session_checkpoint call, so the save builds on it. The server does not remember what you loaded.
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
 - Subagents must not call save_session_checkpoint: they share the parent session's checkpoint, so a save would overwrite it. Report progress to the parent agent instead.
+- If a save returns a session id, pass it as session on every later checkpoint call in this conversation.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
 function createServer(options = {}) {
   const server = new McpServer({ name: GENERATOR.name, version: GENERATOR.version }, { instructions: INSTRUCTIONS });
-  const session = { id: options.sessionId ?? null, ...options.sessionWarning ? { warning: options.sessionWarning } : {} };
-  registerTools(server, session);
+  const config2 = {
+    envId: options.sessionId ?? null,
+    mint: options.mintSessionIds ?? false,
+    ...options.sessionWarning ? { warning: options.sessionWarning } : {}
+  };
+  registerTools(server, config2);
   return server;
 }
 
@@ -37697,7 +37767,9 @@ function log(message) {
 }
 async function main() {
   const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID);
-  const server = createServer({ sessionId: session.id, ...session.warning ? { sessionWarning: session.warning } : {} });
+  const idMode = resolveIdMode(process.env.CHECKPOINT_SESSION_IDS);
+  const warning = [session.warning, idMode.warning].filter((w) => w !== void 0).join(" ");
+  const server = createServer({ sessionId: session.id, mintSessionIds: idMode.mint, ...warning ? { sessionWarning: warning } : {} });
   const transport = new StdioServerTransport();
   let closing = false;
   const shutdown = async (reason) => {
@@ -37714,7 +37786,7 @@ async function main() {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.stdin.on("end", () => void shutdown("stdin closed"));
   await server.connect(transport);
-  log(`v${GENERATOR.version} ready on stdio (cwd: ${process.cwd()}, session: ${session.id ?? "none"})`);
+  log(`v${GENERATOR.version} ready on stdio (cwd: ${process.cwd()}, session: ${session.id ?? (idMode.mint ? "minted per conversation" : "none")})`);
 }
 main().catch((err) => {
   log(`fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
