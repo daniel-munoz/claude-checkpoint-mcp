@@ -1,9 +1,21 @@
 {
-  "description": "Nudges Claude to load a session checkpoint at session start when the project has one.",
+  "description": "Nudges Claude to load a session checkpoint at session start, and stops subagents from saving over the parent session's checkpoint.",
   "hooks": {
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__.+__save_session_checkpoint$",
         "hooks": [
           {
             "type": "command",

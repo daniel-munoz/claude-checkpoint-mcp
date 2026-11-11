@@ -33,6 +33,7 @@ Fork of [tenlean/claude-checkpoint-mcp](https://github.com/tenlean/claude-checkp
   - [Environment variables](#environment-variables)
   - [Claude Code](#claude-code)
   - [Session-start nudge](#session-start-nudge)
+  - [Subagent save guard](#subagent-save-guard)
   - [Claude Desktop](#claude-desktop-claude_desktop_configjson)
   - [Other MCP clients](#other-mcp-clients)
 - [Usage](#usage)
@@ -228,6 +229,16 @@ It looks in the same project root the server uses ([how the project root is chos
 The manual setup (`claude mcp add`) doesn't install the hook. To get the nudge without the plugin, register `node /absolute/path/to/claude-checkpoint-mcp/dist/hook.js` as a `SessionStart` command hook in `settings.json`.
 
 > **Upgrading from 0.3.x with your own nudge hook?** If you copied a `checkpoint-nudge.sh` hook into your config (for example `~/.claude/hooks/checkpoint-nudge.sh`), you'll now get the nudge twice. Delete the script and remove its `SessionStart` entry from `settings.json`. Do this for every config directory you use, such as `~/.claude` and any `CLAUDE_CONFIG_DIR` profile.
+
+### Subagent save guard
+
+Subagents run inside the parent session and share its MCP server, so they also share its session id. Without a guard, a subagent that calls `save_session_checkpoint` would overwrite the **parent's** checkpoint, and with `mode: "replace"` it would leave only its own narrow subtask behind.
+
+The plugin ships a `PreToolUse` hook for this (same file and script as the nudge, matched on `^mcp__.+__save_session_checkpoint$`). When the call comes from a subagent, it denies the save and tells the subagent to report its progress to the parent instead. Saves from the main session, and every load and list call, go through untouched. The server instructions and the save tool's description say the same, for clients without the hook.
+
+It recognizes a subagent by the `agent_id` field Claude Code adds to hook input inside subagents (verified on Claude Code 2.1.322). `agent_type` alone isn't used, because a main session started with `--agent` has it too. On a Claude Code version that doesn't send `agent_id`, or if the hook fails for any reason, the save goes ahead, so the hook never blocks the main session.
+
+The manual setup (`claude mcp add`) doesn't install it. To add it without the plugin, register `node /absolute/path/to/claude-checkpoint-mcp/dist/hook.js` as a `PreToolUse` command hook with that matcher in `settings.json`.
 
 ### Claude Desktop (`claude_desktop_config.json`)
 
@@ -613,6 +624,7 @@ Paths are always relative to the project root. The file never stores absolute pa
 | Warning: "not git-ignored" | Add `.claude-checkpoint*` to `.gitignore`. |
 | Claude is told about checkpoints twice at session start | You still have your own nudge hook as well as the plugin's. Remove yours (see [session-start nudge](#session-start-nudge)). |
 | No nudge at session start | The hook only comes with the plugin, and only fires when the session's start directory (or `CHECKPOINT_PROJECT_ROOT`) has checkpoints. Check that `SESSION_CHECKPOINT_NUDGE` isn't `off`, and run `/hooks` to see that it's registered. |
+| A subagent's save is denied with "Subagents must not save session checkpoints" | Working as intended: the [subagent save guard](#subagent-save-guard) stopped it from overwriting the parent's checkpoint. Have the subagent report its progress in its final answer, and save from the main session. |
 | No "Since this checkpoint" section | The project isn't a git repo, or had no commits at save time. |
 
 Server logs go to **stderr**. Stdout is reserved for the MCP protocol.

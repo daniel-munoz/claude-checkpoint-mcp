@@ -161,7 +161,8 @@ export const saveTool = {
     "(.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), " +
     "so a new session can resume after a crash, /clear, or context limit without re-exploring. " +
     "Call after finishing a milestone, before risky operations, and when the conversation is getting long. " +
-    "Git branch, HEAD and uncommitted files are captured automatically.",
+    "Git branch, HEAD and uncommitted files are captured automatically. " +
+    "Subagents must not call this: they share the parent session's checkpoint. Report progress to the parent instead.",
   inputSchema: saveSchema,
   outputSchema: saveOutput,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

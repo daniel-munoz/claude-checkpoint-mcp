@@ -8,6 +8,7 @@ Persists session context to a checkpoint file in the project so work survives cr
 - If load_session_checkpoint returns a list instead of a checkpoint, show the list to the user and ask which one to resume, then call it again with that checkpoint. Never pick one on the user's behalf.
 - After loading another session's checkpoint, pass its selector as \`resumedFrom\` on your next save_session_checkpoint call, so the save builds on it. The server does not remember what you loaded.
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
+- Subagents must not call save_session_checkpoint: they share the parent session's checkpoint, so a save would overwrite it. Report progress to the parent agent instead.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
 
 export interface ServerOptions {

@@ -37361,7 +37361,7 @@ var loadSchema = external_exports.strictObject(loadInput);
 var listSchema = external_exports.strictObject(listInput);
 var saveTool = {
   title: "Save session checkpoint",
-  description: "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project (.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically.",
+  description: "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project (.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), so a new session can resume after a crash, /clear, or context limit without re-exploring. Call after finishing a milestone, before risky operations, and when the conversation is getting long. Git branch, HEAD and uncommitted files are captured automatically. Subagents must not call this: they share the parent session's checkpoint. Report progress to the parent instead.",
   inputSchema: saveSchema,
   outputSchema: saveOutput,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
@@ -37681,6 +37681,7 @@ var INSTRUCTIONS = `Persists session context to a checkpoint file in the project
 - If load_session_checkpoint returns a list instead of a checkpoint, show the list to the user and ask which one to resume, then call it again with that checkpoint. Never pick one on the user's behalf.
 - After loading another session's checkpoint, pass its selector as \`resumedFrom\` on your next save_session_checkpoint call, so the save builds on it. The server does not remember what you loaded.
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
+- Subagents must not call save_session_checkpoint: they share the parent session's checkpoint, so a save would overwrite it. Report progress to the parent agent instead.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
 function createServer(options = {}) {
   const server = new McpServer({ name: GENERATOR.name, version: GENERATOR.version }, { instructions: INSTRUCTIONS });

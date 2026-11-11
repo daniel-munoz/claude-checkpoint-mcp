@@ -1,5 +1,18 @@
 #!/usr/bin/env node
 
+// src/guard.ts
+var SAVE_TOOL_SUFFIX = "__save_session_checkpoint";
+var REASON = "Subagents must not save session checkpoints: they share the parent session's checkpoint, so a save would overwrite it. Report your progress to the parent agent in your final answer instead.";
+function guard(input) {
+  if (typeof input !== "object" || input === null) return null;
+  const { tool_name, agent_id } = input;
+  if (typeof tool_name !== "string" || !tool_name.endsWith(SAVE_TOOL_SUFFIX)) return null;
+  if (typeof agent_id !== "string" || agent_id === "") return null;
+  return JSON.stringify({
+    hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: REASON }
+  });
+}
+
 // src/nudge.ts
 import { readdir, stat as stat2 } from "node:fs/promises";
 import path2 from "node:path";
@@ -122,7 +135,13 @@ function parseInput(text) {
   }
 }
 async function main() {
-  const message = await nudge(parseInput(await readStdin()));
+  const input = parseInput(await readStdin());
+  if (input.hook_event_name === "PreToolUse") {
+    const decision = guard(input);
+    if (decision !== null) process.stdout.write(decision + "\n");
+    return;
+  }
+  const message = await nudge(input);
   if (message !== null) process.stdout.write(hookOutput(message) + "\n");
 }
 main().catch(() => {
