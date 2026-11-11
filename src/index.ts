@@ -2,7 +2,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { GENERATOR } from "./schema.js";
 import { createServer } from "./server.js";
-import { resolveSessionId } from "./session.js";
+import { resolveIdMode, resolveSessionId } from "./session.js";
 
 // stdout carries JSON-RPC frames; anything else written there corrupts the stream.
 // All diagnostics go to stderr, which Claude Code captures in its MCP logs.
@@ -12,7 +12,9 @@ function log(message: string): void {
 
 async function main(): Promise<void> {
   const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID);
-  const server = createServer({ sessionId: session.id, ...(session.warning ? { sessionWarning: session.warning } : {}) });
+  const idMode = resolveIdMode(process.env.CHECKPOINT_SESSION_IDS);
+  const warning = [session.warning, idMode.warning].filter((w) => w !== undefined).join(" ");
+  const server = createServer({ sessionId: session.id, mintSessionIds: idMode.mint, ...(warning ? { sessionWarning: warning } : {}) });
   const transport = new StdioServerTransport();
 
   let closing = false;
@@ -31,7 +33,7 @@ async function main(): Promise<void> {
   process.stdin.on("end", () => void shutdown("stdin closed"));
 
   await server.connect(transport);
-  log(`v${GENERATOR.version} ready on stdio (cwd: ${process.cwd()}, session: ${session.id ?? "none"})`);
+  log(`v${GENERATOR.version} ready on stdio (cwd: ${process.cwd()}, session: ${session.id ?? (idMode.mint ? "minted per conversation" : "none")})`);
 }
 
 main().catch((err: unknown) => {

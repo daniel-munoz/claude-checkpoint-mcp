@@ -29,6 +29,13 @@
           "isRequired": false,
           "isSecret": false,
           "format": "string"
+        },
+        {
+          "name": "CHECKPOINT_SESSION_IDS",
+          "description": "Optional. Set to mint to give clients without a session id their own checkpoint per conversation (the server mints an id on the first save and the agent passes it back). Unset or legacy: such clients share .claude-checkpoint. Experimental.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
         }
       ]
     }

@@ -8,6 +8,14 @@ const projectRootArg = z
   .optional()
   .describe("Absolute path of the project. Defaults to the client's workspace root or the server's working directory.");
 
+const sessionArg = z
+  .string()
+  .optional()
+  .describe(
+    "This conversation's session id, as returned by an earlier save. Omit on Claude Code. " +
+      "Not for picking a checkpoint to read: use load_session_checkpoint's checkpoint, then resumedFrom.",
+  );
+
 const saveInput = {
   goal: z.string().min(1).max(LIMITS.goal).describe("The primary objective of the session, in one or two sentences."),
   tasks: z
@@ -59,6 +67,7 @@ const saveInput = {
         "Pass it on the first save after loading another session's checkpoint: a merge save then builds on it, and the link is recorded. " +
         "Ignored once this session has its own checkpoint.",
     ),
+  session: sessionArg,
   projectRoot: projectRootArg,
 };
 
@@ -73,6 +82,8 @@ const saveOutput = {
     redactions: z.number(),
   }),
   warnings: z.array(z.string()),
+  session: z.string().optional(),
+  sessionSource: z.enum(["argument", "env", "minted"]).optional(),
 };
 
 const loadInput = {
@@ -158,7 +169,7 @@ export const saveTool = {
   title: "Save session checkpoint",
   description:
     "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project " +
-    "(.claude-checkpoints/<session-id>.json, or .claude-checkpoint when the client provides no session id), " +
+    "(.claude-checkpoints/<session-id>.json, or .claude-checkpoint when there is no session id), " +
     "so a new session can resume after a crash, /clear, or context limit without re-exploring. " +
     "Call after finishing a milestone, before risky operations, and when the conversation is getting long. " +
     "Git branch, HEAD and uncommitted files are captured automatically. " +
