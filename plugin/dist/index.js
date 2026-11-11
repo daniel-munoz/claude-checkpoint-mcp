@@ -28613,7 +28613,7 @@ var StdioServerTransport = class {
 // package.json
 var package_default = {
   name: "session-checkpoint-mcp",
-  version: "0.6.0",
+  version: "1.0.0",
   mcpName: "io.github.daniel-munoz/claude-checkpoint-mcp",
   description: "MCP server that checkpoints Claude Code session context to survive crashes and token limits",
   repository: {
@@ -28633,6 +28633,7 @@ var package_default = {
   files: [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   engines: {

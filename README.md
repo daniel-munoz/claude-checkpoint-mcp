@@ -39,6 +39,7 @@ Fork of [tenlean/claude-checkpoint-mcp](https://github.com/tenlean/claude-checkp
 - [Usage](#usage)
 - [Tool reference & examples](#tool-reference--examples)
 - [The checkpoint files](#the-checkpoint-files)
+- [Compatibility](#compatibility)
 - [Security & privacy](#security--privacy)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
@@ -548,7 +549,7 @@ Each one is plain, versioned JSON, so it's easy to read, diff, or edit by hand. 
   "id": "ee5507c0-855e-44a5-85c1-d97b767537c9",
   "createdAt": "2026-10-08T02:23:55.477Z",
   "updatedAt": "2026-10-08T02:23:55.477Z",
-  "generator": { "name": "session-checkpoint-mcp", "version": "0.6.0" },
+  "generator": { "name": "session-checkpoint-mcp", "version": "1.0.0" },
   "project": { "name": "my-app" },
   "git": {
     "branch": "feat/github-oauth",
@@ -601,6 +602,37 @@ Each one is plain, versioned JSON, so it's easy to read, diff, or edit by hand. 
 Paths are always relative to the project root. The file never stores absolute paths.
 
 ---
+
+## Compatibility
+
+From 1.0.0 this project follows [semantic versioning](https://semver.org/). What changed in each release is in the [CHANGELOG](CHANGELOG.md).
+
+**Covered: a 1.x release never breaks these.**
+
+- **The tools.** These are `save_session_checkpoint`, `load_session_checkpoint` and `list_session_checkpoints`, together with:
+  - their input fields and which are required
+  - their output fields (`structuredContent`)
+  - their four annotation hints
+
+  [`test/contract.test.ts`](test/contract.test.ts) pins all of this as clients receive it from `tools/list`.
+- **The checkpoint files.** That means the `version: 1` JSON format and where files live: `.claude-checkpoints/<session-id>.json`, the `.prev` backups, and the legacy `.claude-checkpoint`. A 1.x release reads every file an earlier 1.x wrote.
+- **The legacy file.** `.claude-checkpoint` stays readable, and listed as `legacy`, through 1.x. It's written only with `CHECKPOINT_SESSION_IDS=legacy`.
+- **The environment variables.** These are `CLAUDE_CODE_SESSION_ID`, `CHECKPOINT_PROJECT_ROOT`, `CHECKPOINT_SESSION_IDS` and `SESSION_CHECKPOINT_NUDGE`, and the values they accept.
+- **How the project root is chosen** ([details](#how-the-project-root-is-chosen)).
+- **The plugin.** Its name (`session-checkpoint`), its two hooks (the [session-start nudge](#session-start-nudge) and the [subagent save guard](#subagent-save-guard)), and the `dist/` script paths that the manual setup registers.
+
+**Breaking, so only in a major release:**
+- removing or renaming a tool, an input or output field, or an environment variable
+- making an input required, or narrowing the values it accepts
+- changing the meaning of an existing field
+- writing a checkpoint file that the previous 1.x release can't read
+
+**Allowed in a minor release:** new tools, new optional inputs, and new output fields. A new checkpoint format version is allowed too, as long as files in the old one still load.
+
+**Not covered: these can change in any release.**
+- the wording of the resume brief, the server instructions, tool descriptions, and messages and warnings
+- the order of list entries with the same timestamp
+- anything under `src/`. The npm package is a server to run, not a library to import.
 
 ## Security & privacy
 
@@ -675,7 +707,13 @@ src/
 
 ### Releasing
 
-The version lives in `package.json`, `server.json` (twice), `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. `test/metadata.test.ts` fails if they disagree. Bump them all, run `npm run build`, commit, then push a `vX.Y.Z` tag. The [Publish workflow](.github/workflows/publish.yml) publishes `session-checkpoint-mcp` to npm and `server.json` to the MCP registry as `io.github.daniel-munoz/claude-checkpoint-mcp`.
+1. **Prepare the release on a branch, with a pull request.**
+   - Bump the version in `package.json`, `package-lock.json`, `server.json` (twice), `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. `test/metadata.test.ts` fails if they disagree.
+   - Move the changes under a new version heading in [`CHANGELOG.md`](CHANGELOG.md).
+   - Run `npm ci` and `npm run build`. Commit the bump together with the rebuilt `plugin/dist`.
+2. **Merge the pull request.**
+3. **Tag the merge commit `vX.Y.Z` on `main`.** Either create a GitHub release with a new tag (**Releases → Draft a new release**, with release notes taken from the CHANGELOG entry), or push the tag.
+4. **Check the [Publish workflow](.github/workflows/publish.yml).** It starts on the new tag, refuses to publish if the tag doesn't match `package.json`, and publishes `session-checkpoint-mcp` to npm and `server.json` to the MCP registry as `io.github.daniel-munoz/claude-checkpoint-mcp`.
 
 If a release fails partway, don't re-run the failed job. Run the workflow again from **Actions → Publish → Run workflow** with the tag instead. Steps that already succeeded are skipped.
 
