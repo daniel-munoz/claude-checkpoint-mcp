@@ -172,7 +172,7 @@ export const saveTool = {
   title: "Save session checkpoint",
   description:
     "Save the current session's goal, progress, touched files and recent commands to this session's checkpoint in the project " +
-    "(.claude-checkpoints/<session-id>.json, or .claude-checkpoint when there is no session id), " +
+    "(.claude-checkpoints/<session-id>.json; a client without a session id gets one on its first save, returned as session), " +
     "so a new session can resume after a crash, /clear, or context limit without re-exploring. " +
     "Call after finishing a milestone, before risky operations, and when the conversation is getting long. " +
     "Git branch, HEAD and uncommitted files are captured automatically. " +

@@ -36,7 +36,7 @@ import { DEFAULT_LIST_LIMIT, listTool, loadTool, saveTool, type ListArgs, type L
 export interface SessionConfig {
   /** CLAUDE_CODE_SESSION_ID, or null when the client doesn't provide one. */
   envId: string | null;
-  /** CHECKPOINT_SESSION_IDS=mint: a save with no session id mints one instead of using the legacy file. */
+  /** A save with no session id mints one instead of using the legacy file (CHECKPOINT_SESSION_IDS, default on). */
   mint: boolean;
   /** Why a provided setting couldn't be used; surfaced in every tool result. */
   warning?: string;

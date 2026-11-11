@@ -65,17 +65,18 @@ describe("resolveCallSession", () => {
 });
 
 describe("resolveIdMode", () => {
-  it("defaults to legacy", () => {
-    expect(resolveIdMode(undefined)).toEqual({ mint: false });
-    expect(resolveIdMode("")).toEqual({ mint: false });
-    expect(resolveIdMode("legacy")).toEqual({ mint: false });
-  });
-
-  it("turns minting on for mint, ignoring case and spaces", () => {
+  it("mints by default", () => {
+    expect(resolveIdMode(undefined)).toEqual({ mint: true });
+    expect(resolveIdMode("")).toEqual({ mint: true });
     expect(resolveIdMode(" MINT ")).toEqual({ mint: true });
   });
 
-  it("falls back to legacy, with a warning, for any other value", () => {
-    expect(resolveIdMode("yes")).toEqual({ mint: false, warning: expect.stringContaining('CHECKPOINT_SESSION_IDS must be "mint" or "legacy"') });
+  it("keeps the shared legacy file for legacy, ignoring case and spaces", () => {
+    expect(resolveIdMode(" Legacy ")).toEqual({ mint: false });
+  });
+
+  it("falls back to minting, with a warning, for any other value", () => {
+    expect(resolveIdMode("yes")).toEqual({ mint: true, warning: expect.stringContaining('CHECKPOINT_SESSION_IDS must be "mint" or "legacy"') });
+    expect(resolveIdMode("off").warning).toContain("Using mint.");
   });
 });

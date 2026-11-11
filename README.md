@@ -111,9 +111,8 @@ Claude Code passes each MCP server its session id (`CLAUDE_CODE_SESSION_ID`). Th
 - **Loading** returns the session's own checkpoint if it has one. Otherwise, if other checkpoints exist, it returns a list (goal, last-saved time, branch, whether all tasks are done) and Claude asks you which one to resume. It never picks one for you, even when there's only one.
 - **Resuming another session's checkpoint** loads it, but saves still go to the current session's own file. The load result tells Claude to pass the checkpoint's selector as `resumedFrom` on its next save. That save then starts from the resumed checkpoint and records where it came from. The server doesn't keep this in memory, so it still works if the server restarts in between. The original is never modified.
 - **Checkpoints are kept** until you delete them, so an old session can be resumed later.
-- **Clients without a session id** (e.g. Claude Desktop) use the single `<project>/.claude-checkpoint` file, exactly as before. A `.claude-checkpoint` left by an earlier version shows up in the list as `legacy`.
-
-**Experimental: a checkpoint per conversation for clients without a session id.** Set [`CHECKPOINT_SESSION_IDS`](#environment-variables) to `mint` and such a client's first save mints a session id, writes `.claude-checkpoints/<id>.json`, and returns the id. Claude passes it back as `session` on every later call in that conversation. If Claude loses the id (after compaction, say), its next save starts a new checkpoint; it never writes into an existing one. With minting on, a load with no id lists the checkpoints instead of opening `.claude-checkpoint` automatically, and new saves no longer write that file. Claude Code is unaffected: its own session id always takes precedence. Whether agents reliably pass the id back is being tested in [#42](https://github.com/daniel-munoz/claude-checkpoint-mcp/issues/42) before this becomes the default.
+- **Clients without a session id** (e.g. Claude Desktop) get a checkpoint per conversation too. The first save mints a session id, writes `.claude-checkpoints/<id>.json`, and returns the id. Claude passes it back as `session` on every later call in that conversation. If Claude loses the id (after compaction, say), its next save starts a new checkpoint; it never writes into an existing one. A load with no id lists the checkpoints and lets you pick, like a new Claude Code session. In testing ([#42](https://github.com/daniel-munoz/claude-checkpoint-mcp/issues/42)), Opus, Sonnet and Haiku passed the id back on every save, including after compaction.
+- **The shared `.claude-checkpoint` file** is what clients without a session id used before 1.0. Set [`CHECKPOINT_SESSION_IDS`](#environment-variables) to `legacy` to keep that behavior: every save without an id goes to that one file, and a load with no id opens it directly. Either way, a `.claude-checkpoint` left by an earlier version shows up in the list as `legacy`. Claude Code is unaffected by this setting: its own session id always takes precedence.
 
 Any client can also pass `session` explicitly. On Claude Code it must match the session's own id: a different one is an error, because it almost always means a checkpoint selector went into the wrong argument (use `checkpoint` to read one and `resumedFrom` to continue from it).
 
@@ -159,8 +158,8 @@ claude mcp add --scope user checkpoint -- npx -y session-checkpoint-mcp
 |---|---|---|---|---|
 | `CHECKPOINT_PROJECT_ROOT` | You (optional) | No | Unset: the client's root, then the server's working directory | Absolute path of the default project to checkpoint. Use it for clients with no current project, such as Claude Desktop. A `projectRoot` argument on a tool call takes precedence. |
 | `SESSION_CHECKPOINT_NUDGE` | You (optional) | No | Unset: the nudge is on | Set to `off` (or `0`, `false`, `no`) to turn off the plugin's [session-start nudge](#session-start-nudge). Read by the hook, not the server. |
-| `CLAUDE_CODE_SESSION_ID` | Claude Code, automatically | No | Unset: one shared `.claude-checkpoint` file | Picks this session's checkpoint file, `.claude-checkpoints/<session-id>.json`. You don't set it. See [one checkpoint per session](#one-checkpoint-per-session). |
-| `CHECKPOINT_SESSION_IDS` | You (optional) | No | Unset (same as `legacy`): clients without a session id share `.claude-checkpoint` | **Experimental.** `mint` gives clients without a session id their own checkpoint per conversation: the first save mints an id, and Claude passes it back as `session`. Ignored when `CLAUDE_CODE_SESSION_ID` is set. See [one checkpoint per session](#one-checkpoint-per-session). |
+| `CLAUDE_CODE_SESSION_ID` | Claude Code, automatically | No | Unset: a session id is minted per conversation (see `CHECKPOINT_SESSION_IDS`) | Picks this session's checkpoint file, `.claude-checkpoints/<session-id>.json`. You don't set it. See [one checkpoint per session](#one-checkpoint-per-session). |
+| `CHECKPOINT_SESSION_IDS` | You (optional) | No | Unset (same as `mint`): clients without a session id get their own checkpoint per conversation | Set to `legacy` to have clients without a session id share one `.claude-checkpoint` file, as before 1.0. Other values fall back to `mint` with a warning. Has no effect on Claude Code, whose own session id takes precedence. See [one checkpoint per session](#one-checkpoint-per-session). |
 
 ### Claude Code
 
@@ -351,7 +350,7 @@ Task markers: `[x]` done · `[~]` in progress · `[ ]` pending · `[!]` blocked.
 
 ### `save_session_checkpoint`
 
-Writes the current session's checkpoint: `<projectRoot>/.claude-checkpoints/<session-id>.json`, or `<projectRoot>/.claude-checkpoint` when the client provides no session id.
+Writes the current session's checkpoint: `<projectRoot>/.claude-checkpoints/<session-id>.json`. A client without a session id gets one minted on its first save (or, with `CHECKPOINT_SESSION_IDS=legacy`, writes `<projectRoot>/.claude-checkpoint`).
 
 | Parameter | Type | Required | Description |
 |---|---|:-:|---|
@@ -524,7 +523,7 @@ Read-only. Lists the project's checkpoints, newest first; unreadable ones are li
 3. The client's first `file://` root, if the client supports MCP roots
 4. The server process's working directory
 
-The path must be absolute and must be an existing directory. Symlinks are resolved. Checkpoints are always written under exactly that root: `<root>/.claude-checkpoints/<session-id>.json`, or `<root>/.claude-checkpoint` without a session id.
+The path must be absolute and must be an existing directory. Symlinks are resolved. Checkpoints are always written under exactly that root: `<root>/.claude-checkpoints/<session-id>.json`, or `<root>/.claude-checkpoint` with `CHECKPOINT_SESSION_IDS=legacy` and no session id.
 
 ---
 
@@ -532,9 +531,9 @@ The path must be absolute and must be an existing directory. Symlinks are resolv
 
 ```
 <project>/
-├── .claude-checkpoint              # legacy single checkpoint (clients without a session id, or 0.1.x)
+├── .claude-checkpoint              # legacy single checkpoint (0.x clients without a session id, CHECKPOINT_SESSION_IDS=legacy, or 0.1.x)
 ├── .claude-checkpoint.prev         # its backup
-└── .claude-checkpoints/            # one checkpoint per Claude Code session (directory mode 0700)
+└── .claude-checkpoints/            # one checkpoint per session or minted conversation (directory mode 0700)
     ├── <session-id>.json
     └── <session-id>.json.prev      # each with its own backup
 ```
@@ -635,7 +634,7 @@ Paths are always relative to the project root. The file never stores absolute pa
 | Claude is told about checkpoints twice at session start | You still have your own nudge hook as well as the plugin's. Remove yours (see [session-start nudge](#session-start-nudge)). |
 | No nudge at session start | The hook only comes with the plugin, and only fires when the session's start directory (or `CHECKPOINT_PROJECT_ROOT`) has checkpoints. Check that `SESSION_CHECKPOINT_NUDGE` isn't `off`, and run `/hooks` to see that it's registered. |
 | `session: "…" names a different one` | A checkpoint selector was passed as `session`. Use `checkpoint` on `load_session_checkpoint` to read another checkpoint, then `resumedFrom` on the next save to continue from it. |
-| Many small checkpoints with `CHECKPOINT_SESSION_IDS=mint` | Claude isn't passing the `session` id back, so each first save starts a new checkpoint. Remind it, or leave the variable unset. |
+| Many small checkpoints from a client without a session id | Claude isn't passing the `session` id back, so each first save starts a new checkpoint. Remind it, or set `CHECKPOINT_SESSION_IDS=legacy` to share one `.claude-checkpoint` file instead. |
 | A subagent's save is denied with "Subagents must not save session checkpoints" | Working as intended: the [subagent save guard](#subagent-save-guard) stopped it from overwriting the parent's checkpoint. Have the subagent report its progress in its final answer, and save from the main session. |
 | No "Since this checkpoint" section | The project isn't a git repo, or had no commits at save time. |
 

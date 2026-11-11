@@ -25,14 +25,14 @@
         },
         {
           "name": "CLAUDE_CODE_SESSION_ID",
-          "description": "Set automatically by Claude Code; do not set it yourself. Selects the per-session checkpoint file (.claude-checkpoints/<session-id>.json). Without it the server uses the shared .claude-checkpoint file.",
+          "description": "Set automatically by Claude Code; do not set it yourself. Selects the per-session checkpoint file (.claude-checkpoints/<session-id>.json). Without it the server mints a session id per conversation, or uses the shared .claude-checkpoint file with CHECKPOINT_SESSION_IDS=legacy.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
         },
         {
           "name": "CHECKPOINT_SESSION_IDS",
-          "description": "Optional. Set to mint to give clients without a session id their own checkpoint per conversation (the server mints an id on the first save and the agent passes it back). Unset or legacy: such clients share .claude-checkpoint. Experimental.",
+          "description": "Optional. Unset or mint: clients without a session id get their own checkpoint per conversation (the server mints an id on the first save and the agent passes it back). Set to legacy to have them share one .claude-checkpoint file, as before 1.0. No effect on Claude Code.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"

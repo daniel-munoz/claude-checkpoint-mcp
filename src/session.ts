@@ -51,7 +51,10 @@ export function resolveCallSession(arg: string | undefined, envId: string | null
   );
 }
 
-/** Whether saves without a session id mint one (CHECKPOINT_SESSION_IDS=mint) or use the legacy file. */
+/**
+ * Whether saves without a session id mint one (the default, or CHECKPOINT_SESSION_IDS=mint) or use the
+ * shared legacy file (CHECKPOINT_SESSION_IDS=legacy). Minting became the default after #42 (#43).
+ */
 export interface IdMode {
   mint: boolean;
   warning?: string;
@@ -59,7 +62,7 @@ export interface IdMode {
 
 export function resolveIdMode(raw: string | undefined): IdMode {
   const value = (raw ?? "").trim().toLowerCase();
-  if (value === "mint") return { mint: true };
-  if (value === "" || value === "legacy") return { mint: false };
-  return { mint: false, warning: `CHECKPOINT_SESSION_IDS must be "mint" or "legacy"; got ${JSON.stringify(raw)}. Using legacy.` };
+  if (value === "" || value === "mint") return { mint: true };
+  if (value === "legacy") return { mint: false };
+  return { mint: true, warning: `CHECKPOINT_SESSION_IDS must be "mint" or "legacy"; got ${JSON.stringify(raw)}. Using mint.` };
 }

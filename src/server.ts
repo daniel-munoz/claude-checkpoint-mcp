@@ -15,7 +15,10 @@ Persists session context to a checkpoint file in the project so work survives cr
 export interface ServerOptions {
   /** The Claude Code session id, or null when the client doesn't provide one. */
   sessionId?: string | null;
-  /** CHECKPOINT_SESSION_IDS=mint: saves without a session id mint one instead of using the legacy file. */
+  /**
+   * Saves without a session id mint one instead of using the legacy file. Off unless set here; the
+   * published server sets it from CHECKPOINT_SESSION_IDS, where minting is the default (see resolveIdMode).
+   */
   mintSessionIds?: boolean;
   /** Why a provided session setting couldn't be used; surfaced in every tool result. */
   sessionWarning?: string;
