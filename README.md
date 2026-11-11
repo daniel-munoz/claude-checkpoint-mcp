@@ -651,6 +651,8 @@ npm run build       # compile dist/index.js (server), dist/hook.js (nudge) and d
 npm run inspect     # open the MCP Inspector against dist/index.js
 ```
 
+`plugin/dist/` is committed, because plugin installs run it as-is. Its `package.json` (`"type": "module"`) marks the bundles as ES modules. The installed plugin lives outside this repo, so without that file Node falls back to the nearest unrelated `package.json` above it: it warns on every run, and Node versions without module syntax detection (e.g. 20.10) can't load the bundles at all.
+
 ```
 src/
 ├── index.ts    # entry point: stdio transport, signals, stderr logging
