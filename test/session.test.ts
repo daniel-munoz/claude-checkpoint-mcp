@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveSessionId } from "../src/session.js";
+import { CheckpointError } from "../src/paths.js";
+import { resolveCallSession, resolveIdMode, resolveSessionId } from "../src/session.js";
 
 describe("resolveSessionId", () => {
   it("accepts a Claude Code session id", () => {
@@ -23,5 +24,47 @@ describe("resolveSessionId", () => {
     const result = resolveSessionId("legacy");
     expect(result.id).toBeNull();
     expect(result.warning).toMatch(/CLAUDE_CODE_SESSION_ID/);
+  });
+});
+
+describe("resolveCallSession", () => {
+  it("uses the env var when no argument is passed", () => {
+    expect(resolveCallSession(undefined, "env1")).toEqual({ id: "env1", source: "env" });
+  });
+
+  it("treats an argument equal to the env var as the env var", () => {
+    expect(resolveCallSession("env1", "env1")).toEqual({ id: "env1", source: "env" });
+  });
+
+  it("uses the argument when there is no env var", () => {
+    expect(resolveCallSession("a1", null)).toEqual({ id: "a1", source: "argument" });
+  });
+
+  it("reports no session when there is neither", () => {
+    expect(resolveCallSession(undefined, null)).toEqual({ id: null, source: null });
+  });
+
+  it("rejects an argument that differs from the env var", () => {
+    expect(() => resolveCallSession("other", "env1")).toThrow('This server runs for session "env1"; session: "other" names a different one.');
+  });
+
+  it("rejects arguments that aren't usable session ids", () => {
+    for (const bad of ["legacy", "../x", "a b", "", "x".repeat(129)]) expect(() => resolveCallSession(bad, null)).toThrow(CheckpointError);
+  });
+});
+
+describe("resolveIdMode", () => {
+  it("defaults to legacy", () => {
+    expect(resolveIdMode(undefined)).toEqual({ mint: false });
+    expect(resolveIdMode("")).toEqual({ mint: false });
+    expect(resolveIdMode("legacy")).toEqual({ mint: false });
+  });
+
+  it("turns minting on for mint, ignoring case and spaces", () => {
+    expect(resolveIdMode(" MINT ")).toEqual({ mint: true });
+  });
+
+  it("falls back to legacy, with a warning, for any other value", () => {
+    expect(resolveIdMode("yes")).toEqual({ mint: false, warning: expect.stringContaining('CHECKPOINT_SESSION_IDS must be "mint" or "legacy"') });
   });
 });
