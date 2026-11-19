@@ -32,7 +32,8 @@ describe("checkpoint workflow fields", () => {
     const c = parseCheckpoint({ ...makeCheckpoint(), workflowId: "01a1f46f-41b3:run.1", step: "work" });
     expect([c.workflowId, c.step]).toEqual(["01a1f46f-41b3:run.1", "work"]);
   });
-  it("rejects a workflow id with characters outside the allowed set", () => {
-    expect(() => parseCheckpoint({ ...makeCheckpoint(), workflowId: "a/b" })).toThrow();
+  it("reads a stored workflow id of any shape, so a later 1.x can widen the pattern", () => {
+    expect(parseCheckpoint({ ...makeCheckpoint(), workflowId: "a/b c" }).workflowId).toBe("a/b c");
+    expect(() => parseCheckpoint({ ...makeCheckpoint(), workflowId: "x".repeat(129) })).toThrow();
   });
 });

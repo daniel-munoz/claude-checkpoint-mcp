@@ -96,10 +96,11 @@ async function guard(fn: () => Promise<CallToolResult>): Promise<CallToolResult>
 async function save(args: SaveArgs, config: SessionConfig, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
   let call = resolveCallSession(args.session, config.envId);
   if (call.id === null && config.mint) call = { id: randomUUID(), source: "minted" };
-  refuseApprovalPayloads(args);
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const warnings: string[] = config.warning ? [config.warning] : [];
   const target = await saveBase(root, call, args.resumedFrom, args.mode, warnings);
+  // Workflow saves only (#55): outside a workflow this would narrow what 1.0 accepts. Checked before any write.
+  if (workflowFields(args, config.workflow, target).workflowId !== undefined) refuseApprovalPayloads(args);
   const git = await snapshot(root, MAX_HASHED_CHANGES);
 
   const checkpoint = buildCheckpoint({ args, root, sessionId: call.id, target, git, redactor: createRedactor(), warnings, workflow: config.workflow });
@@ -119,7 +120,10 @@ function* saveTexts(args: SaveArgs): Generator<[string, string]> {
     yield [`recentCommands[${i}].command`, c.command];
     if (c.note !== undefined) yield [`recentCommands[${i}].note`, c.note];
   }
-  for (const [i, f] of (args.modifiedFiles ?? []).entries()) if (f.note !== undefined) yield [`modifiedFiles[${i}].note`, f.note];
+  for (const [i, f] of (args.modifiedFiles ?? []).entries()) {
+    yield [`modifiedFiles[${i}].path`, f.path];
+    if (f.note !== undefined) yield [`modifiedFiles[${i}].note`, f.note];
+  }
 }
 
 /** Refuses the save before anything is read or written (#55). */
@@ -154,7 +158,7 @@ function buildCheckpoint(input: CheckpointInput): Checkpoint {
 
   const checkpoint: Checkpoint = {
     ...identity(target, root, sessionId, now),
-    ...workflowFields(input),
+    ...workflowFields(input.args, input.workflow, input.target),
     git: git?.state ?? null,
     goal: { primary: redactor.scrub(args.goal), tasks: content.tasks },
     summary: content.summary,
@@ -170,8 +174,13 @@ function buildCheckpoint(input: CheckpointInput): Checkpoint {
 }
 
 /** The workflow run and step (#55): the argument, then the environment, then the checkpoint being continued. */
-function workflowFields({ args, workflow, target }: CheckpointInput): Pick<Checkpoint, "workflowId" | "step"> {
-  const base = target.previous?.checkpoint;
+function workflowFields(
+  args: SaveArgs,
+  workflow: SessionConfig["workflow"],
+  target: SaveBase,
+): Pick<Checkpoint, "workflowId" | "step"> {
+  // The session's own checkpoint, or the one it resumes from: in either mode, not only a merge base.
+  const base = target.continued?.checkpoint;
   const workflowId = args.workflowId ?? workflow.workflowId ?? base?.workflowId;
   const step = args.step ?? workflow.step ?? base?.step;
   return { ...(workflowId ? { workflowId } : {}), ...(step ? { step } : {}) };
@@ -305,6 +314,8 @@ interface SaveBase {
   resumedFrom: string | undefined;
   /** True when updating the session's own checkpoint (keeps its id and createdAt). */
   continuing: boolean;
+  /** The checkpoint this save continues, in either mode: the session's own, else the resumed one (#55). */
+  continued: LoadResult | null;
 }
 
 /**
@@ -341,7 +352,7 @@ async function saveBase(
   }
   if (previous) warnings.push(...previous.warnings);
   // A checkpoint started from another one is a new checkpoint, not a continuation of that file.
-  return { file, previous, resumedFrom, continuing: previous !== null && previous === own };
+  return { file, previous, resumedFrom, continuing: previous !== null && previous === own, continued: own ?? resumed };
 }
 
 /** The checkpoint a save names as `resumedFrom`; null, with a warning, when it is missing or unreadable. */
@@ -422,7 +433,11 @@ async function loadWorkflow(
       entry.selector === own
         ? undefined
         : `To continue from this checkpoint, pass \`resumedFrom: ${JSON.stringify(entry.selector)}\` on your next save_session_checkpoint call.`;
-    return loaded({ root, selector: entry.selector, file, result, format, resumeHint }, ctx);
+    // An unreadable checkpoint can't be matched to the workflow and may be newer: say so (#55).
+    return loaded({ root, selector: entry.selector, file, result, format, resumeHint }, {
+      ...ctx,
+      sessionWarnings: [...ctx.sessionWarnings, ...listing.warnings],
+    });
   }
   const dir = path.join(root, SLOTS_DIRNAME);
   const text = withNote(`No checkpoint of workflow ${JSON.stringify(workflowId)} in ${root}. Nothing to resume; start fresh.`, ctx.note);

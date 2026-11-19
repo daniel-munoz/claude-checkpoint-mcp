@@ -28668,26 +28668,6 @@ var package_default = {
   license: "MIT"
 };
 
-// src/workflow.ts
-var WORKFLOW_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
-var STEP_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
-var WORKFLOW_ID_ENV = "CHECKPOINT_WORKFLOW_ID";
-var WORKFLOW_STEP_ENV = "CHECKPOINT_WORKFLOW_STEP";
-function resolveWorkflowEnv(id, step) {
-  const warnings = [];
-  const pick2 = (raw, pattern, name) => {
-    if (!raw) return null;
-    if (pattern.test(raw)) return raw;
-    warnings.push(`${name} is not a usable value; checkpoints are saved without it.`);
-    return null;
-  };
-  const out = {
-    workflowId: pick2(id, WORKFLOW_ID_PATTERN, WORKFLOW_ID_ENV),
-    step: pick2(step, STEP_PATTERN, WORKFLOW_STEP_ENV)
-  };
-  return warnings.length ? { ...out, warning: warnings.join(" ") } : out;
-}
-
 // src/paths.ts
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
@@ -28770,8 +28750,10 @@ var Checkpoint = external_exports.object({
   sessionId: external_exports.string().max(128).optional(),
   resumedFrom: external_exports.string().max(128).optional(),
   // The workflow run this session is a step of, and the step (#55). Absent in files 1.0.0 wrote.
-  workflowId: external_exports.string().regex(WORKFLOW_ID_PATTERN).optional(),
-  step: external_exports.string().regex(STEP_PATTERN).optional(),
+  // Inputs are checked against the patterns in workflow.ts; stored values only by length, so a later
+  // 1.x can widen the patterns and still have its files read by this one.
+  workflowId: external_exports.string().min(1).max(128).optional(),
+  step: external_exports.string().min(1).max(64).optional(),
   git: GitState.nullable(),
   goal: external_exports.object({
     primary: external_exports.string().min(1).max(LIMITS.goal),
@@ -37302,7 +37284,7 @@ var RULES = [
   // JWTs (an Okta id token, say): header, payload and signature segments (#55).
   { pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, replace: REDACTED }
 ];
-var APPROVAL_PAYLOAD = /"(?:boundCalls|idToken|attestation)"\s*:/;
+var APPROVAL_PAYLOAD = /\\?"(?:boundCalls|idToken|attestation)\\?"\s*:/;
 function findApprovalPayload(texts) {
   for (const [field, text] of texts) if (APPROVAL_PAYLOAD.test(text)) return field;
   return null;
@@ -37324,6 +37306,26 @@ function createRedactor() {
       return count;
     }
   };
+}
+
+// src/workflow.ts
+var WORKFLOW_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+var STEP_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
+var WORKFLOW_ID_ENV = "CHECKPOINT_WORKFLOW_ID";
+var WORKFLOW_STEP_ENV = "CHECKPOINT_WORKFLOW_STEP";
+function resolveWorkflowEnv(id, step) {
+  const warnings = [];
+  const pick2 = (raw, pattern, name) => {
+    if (!raw) return null;
+    if (pattern.test(raw)) return raw;
+    warnings.push(`${name} is not a usable value; checkpoints are saved without it.`);
+    return null;
+  };
+  const out = {
+    workflowId: pick2(id, WORKFLOW_ID_PATTERN, WORKFLOW_ID_ENV),
+    step: pick2(step, STEP_PATTERN, WORKFLOW_STEP_ENV)
+  };
+  return warnings.length ? { ...out, warning: warnings.join(" ") } : out;
 }
 
 // src/toolSchemas.ts
@@ -37487,10 +37489,10 @@ async function guard(fn) {
 async function save(args, config2, clientRoot) {
   let call = resolveCallSession(args.session, config2.envId);
   if (call.id === null && config2.mint) call = { id: randomUUID(), source: "minted" };
-  refuseApprovalPayloads(args);
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const warnings = config2.warning ? [config2.warning] : [];
   const target = await saveBase(root, call, args.resumedFrom, args.mode, warnings);
+  if (workflowFields(args, config2.workflow, target).workflowId !== void 0) refuseApprovalPayloads(args);
   const git2 = await snapshot(root, MAX_HASHED_CHANGES);
   const checkpoint = buildCheckpoint({ args, root, sessionId: call.id, target, git: git2, redactor: createRedactor(), warnings, workflow: config2.workflow });
   const bytes = await writeCheckpoint(target.file, checkpoint);
@@ -37507,7 +37509,10 @@ function* saveTexts(args) {
     yield [`recentCommands[${i}].command`, c.command];
     if (c.note !== void 0) yield [`recentCommands[${i}].note`, c.note];
   }
-  for (const [i, f] of (args.modifiedFiles ?? []).entries()) if (f.note !== void 0) yield [`modifiedFiles[${i}].note`, f.note];
+  for (const [i, f] of (args.modifiedFiles ?? []).entries()) {
+    yield [`modifiedFiles[${i}].path`, f.path];
+    if (f.note !== void 0) yield [`modifiedFiles[${i}].note`, f.note];
+  }
 }
 function refuseApprovalPayloads(args) {
   const field = findApprovalPayload(saveTexts(args));
@@ -37525,7 +37530,7 @@ function buildCheckpoint(input2) {
   const files = recordFiles(input2, base);
   const checkpoint = {
     ...identity(target, root, sessionId, now),
-    ...workflowFields(input2),
+    ...workflowFields(input2.args, input2.workflow, input2.target),
     git: git2?.state ?? null,
     goal: { primary: redactor.scrub(args.goal), tasks: content.tasks },
     summary: content.summary,
@@ -37539,8 +37544,8 @@ function buildCheckpoint(input2) {
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
   return checkpoint;
 }
-function workflowFields({ args, workflow, target }) {
-  const base = target.previous?.checkpoint;
+function workflowFields(args, workflow, target) {
+  const base = target.continued?.checkpoint;
   const workflowId = args.workflowId ?? workflow.workflowId ?? base?.workflowId;
   const step = args.step ?? workflow.step ?? base?.step;
   return { ...workflowId ? { workflowId } : {}, ...step ? { step } : {} };
@@ -37651,7 +37656,7 @@ async function saveBase(root, call, requested, mode, warnings) {
     }
   }
   if (previous) warnings.push(...previous.warnings);
-  return { file: file2, previous, resumedFrom, continuing: previous !== null && previous === own2 };
+  return { file: file2, previous, resumedFrom, continuing: previous !== null && previous === own2, continued: own2 ?? resumed };
 }
 async function readResumed(file2, selector, warnings) {
   let result;
@@ -37708,7 +37713,10 @@ async function loadWorkflow(root, workflowId, own2, format, sessionId, ctx) {
     const result = await readCheckpoint(file2).catch(() => null);
     if (result === null) continue;
     const resumeHint = entry.selector === own2 ? void 0 : `To continue from this checkpoint, pass \`resumedFrom: ${JSON.stringify(entry.selector)}\` on your next save_session_checkpoint call.`;
-    return loaded({ root, selector: entry.selector, file: file2, result, format, resumeHint }, ctx);
+    return loaded({ root, selector: entry.selector, file: file2, result, format, resumeHint }, {
+      ...ctx,
+      sessionWarnings: [...ctx.sessionWarnings, ...listing.warnings]
+    });
   }
   const dir = path4.join(root, SLOTS_DIRNAME);
   const text = withNote(`No checkpoint of workflow ${JSON.stringify(workflowId)} in ${root}. Nothing to resume; start fresh.`, ctx.note);

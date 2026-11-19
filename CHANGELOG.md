@@ -13,9 +13,7 @@ All notable changes to `session-checkpoint-mcp` (the npm package, MCP registry e
   - The fields are optional in the `version: 1` format and files stay where they were, so 1.0.0 still reads every file 1.1.0 writes.
 - JWTs are redacted like the other tokens.
 
-### Changed
-
-- A save holding an approval payload (a `"boundCalls"`, `"idToken"` or `"attestation"` key) is refused with an error naming the field, and nothing is written.
+- A workflow save (one with a `workflowId`) holding an approval payload (a `"boundCalls"`, `"idToken"` or `"attestation"` key) is refused with an error naming the field, and nothing is written. Saves outside a workflow are unchanged.
 
 ## [1.0.0] - 2026-11-11
 

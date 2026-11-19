@@ -37,8 +37,9 @@ const RULES: Rule[] = [
 ];
 
 // Keys of an approval payload (a card's bound calls, a signed answer's id token or attestation).
-// Redacting part of one would still leave the rest, so a save holding one is refused (#55).
-const APPROVAL_PAYLOAD = /"(?:boundCalls|idToken|attestation)"\s*:/;
+// Redacting part of one would still leave the rest, so a workflow save holding one is refused (#55).
+// The quotes may be escaped, as in a JSON body inside a shell command (curl -d "{\"boundCalls\": …}").
+const APPROVAL_PAYLOAD = /\\?"(?:boundCalls|idToken|attestation)\\?"\s*:/;
 
 /** The first field whose text holds an approval payload, or null. */
 export function findApprovalPayload(texts: Iterable<[field: string, text: string]>): string | null {

@@ -657,7 +657,7 @@ From 1.0.0 this project follows [semantic versioning](https://semver.org/). What
   - bare `sk-…`, `ghp_…`, `github_pat_…`, `AKIA…` and `xox?-…` tokens
   - JWTs (`eyJ….….…`)
 
-  A save holding an approval payload (a `"boundCalls"`, `"idToken"` or `"attestation"` key) is refused outright, with nothing written: redacting part of one would leave the rest.
+  In a [workflow](#workflow-checkpoints) save, an approval payload (a `"boundCalls"`, `"idToken"` or `"attestation"` key, quotes escaped or not) is refused outright, with nothing written: redacting part of one would leave the rest. Saves outside a workflow accept them as before.
 
   Redaction is a safety net, not a guarantee, so keep the file out of version control.
 - **Owner-only, crash-safe writes.** Files are written with mode `0600`. Each save writes a temp file, fsyncs it, and renames it into place, so a crash mid-save can't leave a half-written checkpoint.

@@ -63,6 +63,13 @@ describe("save records the workflow", () => {
     expect([readJson(dir, S2).workflowId, readJson(dir, S2).step]).toEqual(["run-1", "work"]);
   });
 
+  it("keeps the resumed checkpoint's workflow on a replace save", async () => {
+    const dir = tempDir();
+    await save(await connect({ sessionId: S1 }), dir, { workflowId: "run-1", step: "work" });
+    await save(await connect({ sessionId: S2 }), dir, { resumedFrom: S1 }); // mode defaults to replace
+    expect([readJson(dir, S2).workflowId, readJson(dir, S2).step]).toEqual(["run-1", "work"]);
+  });
+
   it("merges onto a file 1.0.0 wrote", async () => {
     const dir = tempDir();
     mkdirSync(path.join(dir, ".claude-checkpoints"), { recursive: true });
@@ -104,7 +111,7 @@ describe("approval payloads are refused", () => {
 
   it.each(cases)("in %s, with nothing written", async (field, args) => {
     const dir = tempDir();
-    const c = await connect({ sessionId: S1 });
+    const c = await connect({ sessionId: S1, workflowId: "run-1" });
     await save(c, dir, { goal: "first" }); // so a refused save would have to make a .prev
     const before = readFileSync(selectorPath(dir, S1), "utf8");
     const { result, text } = await save(c, dir, args);
@@ -114,9 +121,23 @@ describe("approval payloads are refused", () => {
     expect(existsSync(backupPath(selectorPath(dir, S1)))).toBe(false);
   });
 
-  it.each(['{"idToken" : "x"}', '{"attestation":{}}'])("%s is refused too", async (text) => {
-    const { result } = await save(await connect({ sessionId: S1 }), tempDir(), { summary: text });
+  it.each(['{"idToken" : "x"}', '{"attestation":{}}', 'curl -d "{\\"boundCalls\\": {}}"'])("%s is refused too", async (text) => {
+    const { result } = await save(await connect({ sessionId: S1 }), tempDir(), { summary: text, workflowId: "run-1" });
     expect(result.isError).toBe(true);
+  });
+
+  it("a payload in a modified file's path is refused", async () => {
+    const { result } = await save(await connect({ sessionId: S1, workflowId: "run-1" }), tempDir(), {
+      modifiedFiles: [{ path: '{"boundCalls":1}.json' }],
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("outside a workflow, a save holding those keys is accepted as in 1.0", async () => {
+    const dir = tempDir();
+    const { result } = await save(await connect({ sessionId: S1 }), dir, { summary: 'OIDC returns {"idToken": "…"}' });
+    expect(result.isError).toBeFalsy();
+    expect(existsSync(selectorPath(dir, S1))).toBe(true);
   });
 
   it("prose that only names the keys saves", async () => {
@@ -171,6 +192,15 @@ describe("load and list by workflow", () => {
     writeFileSync(backupPath(selectorPath(dir, S2)), "{not json");
     const { data } = await load(await connect({ sessionId: null }), dir, { workflowId: "run-1" });
     expect(data.selector).toBe(S1);
+    expect(data.warnings.join(" ")).toContain(S2); // the unreadable one may be newer: say so
+  });
+
+  it("gives no resumedFrom hint when the match is the caller's own checkpoint", async () => {
+    const dir = tempDir();
+    seed(dir);
+    const { data } = await load(await connect({ sessionId: S2 }), dir, { workflowId: "run-1" });
+    expect(data.selector).toBe(S2);
+    expect(data.resumeHint).toBeUndefined();
   });
 
   it("finds nothing for an unknown workflow", async () => {
