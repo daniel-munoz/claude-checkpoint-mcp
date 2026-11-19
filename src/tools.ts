@@ -40,6 +40,8 @@ export interface SessionConfig {
   mint: boolean;
   /** Why a provided setting couldn't be used; surfaced in every tool result. */
   warning?: string;
+  /** The workflow run and step a save records when its arguments name none (#55). */
+  workflow: { workflowId: string | null; step: string | null };
 }
 
 const LOST_ID_HINT = "If you saved earlier in this conversation, pass the session id that save returned.";

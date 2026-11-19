@@ -1,6 +1,7 @@
 import { z } from "zod";
 // Inlined by the bundler, so the built server doesn't need package.json beside it at runtime.
 import pkg from "../package.json" with { type: "json" };
+import { STEP_PATTERN, WORKFLOW_ID_PATTERN } from "./workflow.js";
 
 export const GENERATOR = { name: pkg.name, version: pkg.version } as const;
 export const CHECKPOINT_VERSION = 1;
@@ -66,6 +67,9 @@ export const Checkpoint = z.object({
   // The Claude Code session that owns this checkpoint, and the selector it was resumed from.
   sessionId: z.string().max(128).optional(),
   resumedFrom: z.string().max(128).optional(),
+  // The workflow run this session is a step of, and the step (#55). Absent in files 1.0.0 wrote.
+  workflowId: z.string().regex(WORKFLOW_ID_PATTERN).optional(),
+  step: z.string().regex(STEP_PATTERN).optional(),
   git: GitState.nullable(),
   goal: z.object({
     primary: z.string().min(1).max(LIMITS.goal),

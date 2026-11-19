@@ -22,6 +22,9 @@ export interface ServerOptions {
   mintSessionIds?: boolean;
   /** Why a provided session setting couldn't be used; surfaced in every tool result. */
   sessionWarning?: string;
+  /** The workflow run and step saves default to (CHECKPOINT_WORKFLOW_ID / _STEP in the published server). */
+  workflowId?: string | null;
+  workflowStep?: string | null;
 }
 
 export function createServer(options: ServerOptions = {}): McpServer {
@@ -30,6 +33,7 @@ export function createServer(options: ServerOptions = {}): McpServer {
     envId: options.sessionId ?? null,
     mint: options.mintSessionIds ?? false,
     ...(options.sessionWarning ? { warning: options.sessionWarning } : {}),
+    workflow: { workflowId: options.workflowId ?? null, step: options.workflowStep ?? null },
   };
   registerTools(server, config);
   return server;
