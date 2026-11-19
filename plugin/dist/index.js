@@ -28613,7 +28613,7 @@ var StdioServerTransport = class {
 // package.json
 var package_default = {
   name: "session-checkpoint-mcp",
-  version: "1.0.0",
+  version: "1.1.0",
   mcpName: "io.github.daniel-munoz/claude-checkpoint-mcp",
   description: "MCP server that checkpoints Claude Code session context to survive crashes and token limits",
   repository: {
@@ -28667,6 +28667,26 @@ var package_default = {
   ],
   license: "MIT"
 };
+
+// src/workflow.ts
+var WORKFLOW_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+var STEP_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
+var WORKFLOW_ID_ENV = "CHECKPOINT_WORKFLOW_ID";
+var WORKFLOW_STEP_ENV = "CHECKPOINT_WORKFLOW_STEP";
+function resolveWorkflowEnv(id, step) {
+  const warnings = [];
+  const pick2 = (raw, pattern, name) => {
+    if (!raw) return null;
+    if (pattern.test(raw)) return raw;
+    warnings.push(`${name} is not a usable value; checkpoints are saved without it.`);
+    return null;
+  };
+  const out = {
+    workflowId: pick2(id, WORKFLOW_ID_PATTERN, WORKFLOW_ID_ENV),
+    step: pick2(step, STEP_PATTERN, WORKFLOW_STEP_ENV)
+  };
+  return warnings.length ? { ...out, warning: warnings.join(" ") } : out;
+}
 
 // src/paths.ts
 import { realpath, stat } from "node:fs/promises";
@@ -28749,6 +28769,9 @@ var Checkpoint = external_exports.object({
   // The Claude Code session that owns this checkpoint, and the selector it was resumed from.
   sessionId: external_exports.string().max(128).optional(),
   resumedFrom: external_exports.string().max(128).optional(),
+  // The workflow run this session is a step of, and the step (#55). Absent in files 1.0.0 wrote.
+  workflowId: external_exports.string().regex(WORKFLOW_ID_PATTERN).optional(),
+  step: external_exports.string().regex(STEP_PATTERN).optional(),
   git: GitState.nullable(),
   goal: external_exports.object({
     primary: external_exports.string().min(1).max(LIMITS.goal),
@@ -37185,10 +37208,12 @@ function entryFor(selector, checkpoint, fromBackup, currentSessionId, now) {
     allTasksDone: tasks.length > 0 && tasks.every((t) => t.status === "done"),
     isCurrentSession: selector === currentSessionId,
     fromBackup,
-    ...checkpoint.resumedFrom !== void 0 ? { resumedFrom: checkpoint.resumedFrom } : {}
+    ...checkpoint.resumedFrom !== void 0 ? { resumedFrom: checkpoint.resumedFrom } : {},
+    ...checkpoint.workflowId !== void 0 ? { workflowId: checkpoint.workflowId } : {},
+    ...checkpoint.step !== void 0 ? { step: checkpoint.step } : {}
   };
 }
-async function listCheckpoints(root, currentSessionId, limit, now = /* @__PURE__ */ new Date()) {
+async function listCheckpoints(root, currentSessionId, limit, now = /* @__PURE__ */ new Date(), workflowId) {
   const warnings = [];
   const selectors = [LEGACY_SELECTOR, ...await slotSelectors(root, warnings)];
   const entries = [];
@@ -37212,6 +37237,11 @@ async function listCheckpoints(root, currentSessionId, limit, now = /* @__PURE__
       });
     }
   }
+  if (workflowId !== void 0) {
+    const kept = entries.filter((e) => e.workflowId === workflowId);
+    entries.length = 0;
+    entries.push(...kept);
+  }
   entries.sort((a, b) => sortTime(b.updatedAt) - sortTime(a.updatedAt));
   const shown = limit > 0 ? entries.slice(0, limit) : entries;
   return { entries: shown, total: entries.length, omitted: entries.length - shown.length, warnings };
@@ -37230,6 +37260,8 @@ function renderListing(listing) {
       e.allTasksDone ? "all tasks done" : null,
       e.isCurrentSession ? "this session" : null,
       e.resumedFrom !== void 0 ? `resumed from \`${e.resumedFrom}\`` : null,
+      e.workflowId !== void 0 ? `workflow \`${e.workflowId}\`` : null,
+      e.step !== void 0 ? `step \`${e.step}\`` : null,
       e.fromBackup ? "from backup" : null
     ].filter((p) => p !== null);
     return `- ${parts.join(" \xB7 ")} \u2014 ${(e.goal ?? "").replace(/\s+/g, " ").trim()}`;
@@ -37266,8 +37298,15 @@ var RULES = [
   { pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g, replace: REDACTED },
   { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g, replace: REDACTED },
   { pattern: /\bAKIA[0-9A-Z]{16}\b/g, replace: REDACTED },
-  { pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, replace: REDACTED }
+  { pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, replace: REDACTED },
+  // JWTs (an Okta id token, say): header, payload and signature segments (#55).
+  { pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, replace: REDACTED }
 ];
+var APPROVAL_PAYLOAD = /"(?:boundCalls|idToken|attestation)"\s*:/;
+function findApprovalPayload(texts) {
+  for (const [field, text] of texts) if (APPROVAL_PAYLOAD.test(text)) return field;
+  return null;
+}
 function createRedactor() {
   let count = 0;
   return {
@@ -37311,6 +37350,10 @@ var saveInput = {
   resumedFrom: external_exports.string().max(128).optional().describe(
     "Selector of the checkpoint this session resumed from, as given by load_session_checkpoint. Pass it on the first save after loading another session's checkpoint: a merge save then builds on it, and the link is recorded. Ignored once this session has its own checkpoint."
   ),
+  workflowId: external_exports.string().regex(WORKFLOW_ID_PATTERN).optional().describe(
+    "The workflow run this session is a step of, for workflow engines. Defaults to CHECKPOINT_WORKFLOW_ID, then to the checkpoint being continued. Omit in ordinary sessions."
+  ),
+  step: external_exports.string().regex(STEP_PATTERN).optional().describe("The workflow step this session runs. Defaults to CHECKPOINT_WORKFLOW_STEP, then to the checkpoint being continued."),
   session: sessionArg,
   projectRoot: projectRootArg
 };
@@ -37331,6 +37374,7 @@ var saveOutput = {
 var loadInput = {
   format: external_exports.enum(["brief", "full"]).default("brief").describe("brief: compact markdown for resuming (recommended). full: the complete checkpoint JSON."),
   checkpoint: external_exports.string().optional().describe("Which checkpoint to load, as a selector from list_session_checkpoints: a session id, or 'legacy'. Omit to load this session's own checkpoint."),
+  workflowId: external_exports.string().regex(WORKFLOW_ID_PATTERN).optional().describe("Load the newest checkpoint of this workflow run, whichever session saved it (for workflow engines). Not with checkpoint."),
   session: sessionArg,
   projectRoot: projectRootArg
 };
@@ -37344,10 +37388,13 @@ var listEntryOutput = external_exports.object({
   isCurrentSession: external_exports.boolean(),
   fromBackup: external_exports.boolean(),
   resumedFrom: external_exports.string().optional(),
+  workflowId: external_exports.string().optional(),
+  step: external_exports.string().optional(),
   unreadable: external_exports.string().optional()
 });
 var listInput = {
   limit: external_exports.number().int().min(0).default(DEFAULT_LIST_LIMIT).describe("Maximum number of checkpoints to return, newest first. 0 returns all of them."),
+  workflowId: external_exports.string().regex(WORKFLOW_ID_PATTERN).optional().describe("List only the checkpoints of this workflow run."),
   session: sessionArg,
   projectRoot: projectRootArg
 };
@@ -37440,14 +37487,35 @@ async function guard(fn) {
 async function save(args, config2, clientRoot) {
   let call = resolveCallSession(args.session, config2.envId);
   if (call.id === null && config2.mint) call = { id: randomUUID(), source: "minted" };
+  refuseApprovalPayloads(args);
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const warnings = config2.warning ? [config2.warning] : [];
   const target = await saveBase(root, call, args.resumedFrom, args.mode, warnings);
   const git2 = await snapshot(root, MAX_HASHED_CHANGES);
-  const checkpoint = buildCheckpoint({ args, root, sessionId: call.id, target, git: git2, redactor: createRedactor(), warnings });
+  const checkpoint = buildCheckpoint({ args, root, sessionId: call.id, target, git: git2, redactor: createRedactor(), warnings, workflow: config2.workflow });
   const bytes = await writeCheckpoint(target.file, checkpoint);
   await warnIfNotIgnored(root, target.file, call.id, warnings);
   return saveResult(target.file, bytes, args.mode, checkpoint, warnings, call);
+}
+function* saveTexts(args) {
+  yield ["goal", args.goal];
+  if (args.summary !== void 0) yield ["summary", args.summary];
+  for (const [i, t] of (args.tasks ?? []).entries()) yield [`tasks[${i}].description`, t.description];
+  for (const [i, t] of (args.nextSteps ?? []).entries()) yield [`nextSteps[${i}]`, t];
+  for (const [i, t] of (args.decisions ?? []).entries()) yield [`decisions[${i}]`, t];
+  for (const [i, c] of (args.recentCommands ?? []).entries()) {
+    yield [`recentCommands[${i}].command`, c.command];
+    if (c.note !== void 0) yield [`recentCommands[${i}].note`, c.note];
+  }
+  for (const [i, f] of (args.modifiedFiles ?? []).entries()) if (f.note !== void 0) yield [`modifiedFiles[${i}].note`, f.note];
+}
+function refuseApprovalPayloads(args) {
+  const field = findApprovalPayload(saveTexts(args));
+  if (field !== null) {
+    throw new CheckpointError(
+      `${field} holds an approval payload (boundCalls, idToken or attestation); checkpoints never store those. Describe it in words instead, and save again. Nothing was written.`
+    );
+  }
 }
 function buildCheckpoint(input2) {
   const { args, root, sessionId, target, git: git2, redactor, warnings } = input2;
@@ -37457,6 +37525,7 @@ function buildCheckpoint(input2) {
   const files = recordFiles(input2, base);
   const checkpoint = {
     ...identity(target, root, sessionId, now),
+    ...workflowFields(input2),
     git: git2?.state ?? null,
     goal: { primary: redactor.scrub(args.goal), tasks: content.tasks },
     summary: content.summary,
@@ -37469,6 +37538,12 @@ function buildCheckpoint(input2) {
   if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_KB} KB.`);
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
   return checkpoint;
+}
+function workflowFields({ args, workflow, target }) {
+  const base = target.previous?.checkpoint;
+  const workflowId = args.workflowId ?? workflow.workflowId ?? base?.workflowId;
+  const step = args.step ?? workflow.step ?? base?.step;
+  return { ...workflowId ? { workflowId } : {}, ...step ? { step } : {} };
 }
 function identity(target, root, sessionId, now) {
   const own2 = target.continuing ? target.previous?.checkpoint : void 0;
@@ -37598,6 +37673,10 @@ async function load(args, config2, clientRoot) {
     note: noIdNote(call, config2)
   };
   const own2 = call.id ?? (config2.mint ? null : LEGACY_SELECTOR);
+  if (args.workflowId !== void 0) {
+    if (args.checkpoint !== void 0) throw new CheckpointError("Pass checkpoint or workflowId, not both.");
+    return loadWorkflow(root, args.workflowId, own2, args.format, call.id, ctx);
+  }
   if (args.checkpoint !== void 0) {
     const file3 = selectorPath(root, args.checkpoint);
     const result = await readCheckpoint(file3);
@@ -37621,6 +37700,22 @@ async function load(args, config2, clientRoot) {
     };
   }
   return candidates(root, file2, listing, ctx);
+}
+async function loadWorkflow(root, workflowId, own2, format, sessionId, ctx) {
+  const listing = await listCheckpoints(root, sessionId, 0, /* @__PURE__ */ new Date(), workflowId);
+  for (const entry of listing.entries) {
+    const file2 = selectorPath(root, entry.selector);
+    const result = await readCheckpoint(file2).catch(() => null);
+    if (result === null) continue;
+    const resumeHint = entry.selector === own2 ? void 0 : `To continue from this checkpoint, pass \`resumedFrom: ${JSON.stringify(entry.selector)}\` on your next save_session_checkpoint call.`;
+    return loaded({ root, selector: entry.selector, file: file2, result, format, resumeHint }, ctx);
+  }
+  const dir = path4.join(root, SLOTS_DIRNAME);
+  const text = withNote(`No checkpoint of workflow ${JSON.stringify(workflowId)} in ${root}. Nothing to resume; start fresh.`, ctx.note);
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: { found: false, path: dir, warnings: [...ctx.sessionWarnings, ...listing.warnings], ...sessionField(ctx) }
+  };
 }
 function noIdNote(call, config2) {
   return call.id === null && config2.mint ? NO_ID_NOTE : void 0;
@@ -37690,7 +37785,7 @@ async function loaded({ root, selector, file: file2, result, format, resumeHint 
 async function list(args, config2, clientRoot) {
   const call = resolveCallSession(args.session, config2.envId);
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const listing = await listCheckpoints(root, call.id, args.limit);
+  const listing = await listCheckpoints(root, call.id, args.limit, /* @__PURE__ */ new Date(), args.workflowId);
   const warnings = [...config2.warning ? [config2.warning] : [], ...listing.warnings];
   const text = withNote(
     listing.total === 0 ? `No checkpoints in ${root}.` : [`${listing.total} checkpoint(s) in ${root}, newest first:`, "", renderListing(listing), ...warnings.map((w) => `\u26A0 ${w}`)].join("\n"),
@@ -37747,13 +37842,15 @@ var INSTRUCTIONS = `Persists session context to a checkpoint file in the project
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
 - Subagents must not call save_session_checkpoint: they share the parent session's checkpoint, so a save would overwrite it. Report progress to the parent agent instead.
 - If a save result has sessionSource "minted" or "argument", pass its session id as session on every later checkpoint call in this conversation. When sessionSource is "env" (Claude Code), omit session.
+- In a workflow step (CHECKPOINT_WORKFLOW_ID is set), saves record the workflow on their own; to recover a step, load with workflowId to get the run's newest checkpoint, then pass its selector as \`resumedFrom\`.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
 function createServer(options = {}) {
   const server = new McpServer({ name: GENERATOR.name, version: GENERATOR.version }, { instructions: INSTRUCTIONS });
   const config2 = {
     envId: options.sessionId ?? null,
     mint: options.mintSessionIds ?? false,
-    ...options.sessionWarning ? { warning: options.sessionWarning } : {}
+    ...options.sessionWarning ? { warning: options.sessionWarning } : {},
+    workflow: { workflowId: options.workflowId ?? null, step: options.workflowStep ?? null }
   };
   registerTools(server, config2);
   return server;
@@ -37767,8 +37864,15 @@ function log(message) {
 async function main() {
   const idMode = resolveIdMode(process.env.CHECKPOINT_SESSION_IDS);
   const session = resolveSessionId(process.env.CLAUDE_CODE_SESSION_ID, idMode.mint);
-  const warning = [session.warning, idMode.warning].filter((w) => w !== void 0).join(" ");
-  const server = createServer({ sessionId: session.id, mintSessionIds: idMode.mint, ...warning ? { sessionWarning: warning } : {} });
+  const workflow = resolveWorkflowEnv(process.env[WORKFLOW_ID_ENV], process.env[WORKFLOW_STEP_ENV]);
+  const warning = [session.warning, idMode.warning, workflow.warning].filter((w) => w !== void 0).join(" ");
+  const server = createServer({
+    sessionId: session.id,
+    mintSessionIds: idMode.mint,
+    workflowId: workflow.workflowId,
+    workflowStep: workflow.step,
+    ...warning ? { sessionWarning: warning } : {}
+  });
   const transport = new StdioServerTransport();
   let closing = false;
   const shutdown = async (reason) => {

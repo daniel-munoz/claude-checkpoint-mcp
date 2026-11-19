@@ -27,21 +27,21 @@ const required = (schema: { required?: string[] } | undefined) => [...(schema?.r
 const CONTRACT = {
   save_session_checkpoint: {
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    input: ["decisions", "goal", "mode", "modifiedFiles", "nextSteps", "projectRoot", "recentCommands", "resumedFrom", "session", "summary", "tasks"],
+    input: ["decisions", "goal", "mode", "modifiedFiles", "nextSteps", "projectRoot", "recentCommands", "resumedFrom", "session", "step", "summary", "tasks", "workflowId"],
     inputRequired: ["goal"],
     output: ["bytes", "counts", "mode", "path", "session", "sessionSource", "warnings"],
     outputRequired: ["bytes", "counts", "mode", "path", "warnings"],
   },
   load_session_checkpoint: {
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    input: ["checkpoint", "format", "projectRoot", "session"],
+    input: ["checkpoint", "format", "projectRoot", "session", "workflowId"],
     inputRequired: [],
     output: ["brief", "candidates", "checkpoint", "drift", "found", "fromBackup", "omitted", "path", "resumeHint", "selector", "session", "text", "total", "updatedAt", "warnings"],
     outputRequired: ["found", "path", "warnings"],
   },
   list_session_checkpoints: {
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    input: ["limit", "projectRoot", "session"],
+    input: ["limit", "projectRoot", "session", "workflowId"],
     inputRequired: [],
     output: ["entries", "omitted", "path", "text", "total", "warnings"],
     outputRequired: ["entries", "omitted", "path", "text", "total", "warnings"],
@@ -71,6 +71,15 @@ describe("tool contract", () => {
       expect(props(tools[name]!.outputSchema)).toEqual([...c.output]);
       expect(required(tools[name]!.outputSchema)).toEqual([...c.outputRequired]);
     });
+  });
+
+  it("lists each checkpoint's workflow and step as optional entry fields (1.1.0)", () => {
+    for (const [tool, field] of [["list_session_checkpoints", "entries"], ["load_session_checkpoint", "candidates"]] as const) {
+      const entry = (tools[tool]!.outputSchema?.properties as Record<string, { items?: { properties?: object; required?: string[] } }>)[field]!.items;
+      expect(Object.keys(entry?.properties ?? {})).toEqual(expect.arrayContaining(["workflowId", "step"]));
+      expect(entry?.required ?? []).not.toContain("workflowId");
+      expect(entry?.required ?? []).not.toContain("step");
+    }
   });
 
   it("documents where a save's session id came from", () => {

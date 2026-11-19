@@ -2,6 +2,21 @@
 
 All notable changes to `session-checkpoint-mcp` (the npm package, MCP registry entry `io.github.daniel-munoz/claude-checkpoint-mcp`, and the `session-checkpoint` Claude Code plugin). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). From 1.0.0 the project follows [Semantic Versioning](https://semver.org/); the [compatibility section](README.md#compatibility) of the README says what that covers.
 
+## [1.1.0] - 2026-11-19
+
+### Added
+
+- **Workflow checkpoints** ([#55](https://github.com/daniel-munoz/claude-checkpoint-mcp/issues/55)), for workflow engines that start sessions as the steps of one run:
+  - Checkpoints can record `workflowId` and `step`: from the new optional save inputs, then `CHECKPOINT_WORKFLOW_ID` / `CHECKPOINT_WORKFLOW_STEP`, then the checkpoint being continued.
+  - `load_session_checkpoint` takes an optional `workflowId`: the run's newest readable checkpoint, from any session.
+  - `list_session_checkpoints` takes an optional `workflowId` filter, and its entries carry `workflowId` and `step`.
+  - The fields are optional in the `version: 1` format and files stay where they were, so 1.0.0 still reads every file 1.1.0 writes.
+- JWTs are redacted like the other tokens.
+
+### Changed
+
+- A save holding an approval payload (a `"boundCalls"`, `"idToken"` or `"attestation"` key) is refused with an error naming the field, and nothing is written.
+
 ## [1.0.0] - 2026-11-11
 
 The first stable release. The tool contract, the checkpoint files, the environment variables and the plugin's hooks are now covered by semver (see [Compatibility](README.md#compatibility)).

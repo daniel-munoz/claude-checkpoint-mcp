@@ -10,6 +10,7 @@ Persists session context to a checkpoint file in the project so work survives cr
 - Call save_session_checkpoint after completing a milestone, before risky or long-running operations, and whenever the conversation is getting long. Use mode "merge" for incremental updates within the same task.
 - Subagents must not call save_session_checkpoint: they share the parent session's checkpoint, so a save would overwrite it. Report progress to the parent agent instead.
 - If a save result has sessionSource "minted" or "argument", pass its session id as session on every later checkpoint call in this conversation. When sessionSource is "env" (Claude Code), omit session.
+- In a workflow step (CHECKPOINT_WORKFLOW_ID is set), saves record the workflow on their own; to recover a step, load with workflowId to get the run's newest checkpoint, then pass its selector as \`resumedFrom\`.
 - Keep entries terse: the checkpoint is meant to be cheap to reload.`;
 
 export interface ServerOptions {

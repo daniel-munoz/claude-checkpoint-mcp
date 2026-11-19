@@ -161,6 +161,8 @@ claude mcp add --scope user checkpoint -- npx -y session-checkpoint-mcp
 | `SESSION_CHECKPOINT_NUDGE` | You (optional) | No | Unset: the nudge is on | Set to `off` (or `0`, `false`, `no`) to turn off the plugin's [session-start nudge](#session-start-nudge). Read by the hook, not the server. |
 | `CLAUDE_CODE_SESSION_ID` | Claude Code, automatically | No | Unset: a session id is minted per conversation (see `CHECKPOINT_SESSION_IDS`) | Picks this session's checkpoint file, `.claude-checkpoints/<session-id>.json`. You don't set it. See [one checkpoint per session](#one-checkpoint-per-session). |
 | `CHECKPOINT_SESSION_IDS` | You (optional) | No | Unset (same as `mint`): clients without a session id get their own checkpoint per conversation | Set to `legacy` to have clients without a session id share one `.claude-checkpoint` file, as before 1.0. Other values fall back to `mint` with a warning. Has no effect on Claude Code, whose own session id takes precedence. See [one checkpoint per session](#one-checkpoint-per-session). |
+| `CHECKPOINT_WORKFLOW_ID` | A workflow engine (optional) | No | Unset: saves record no workflow | The workflow run this session is a step of (1–128 of `A-Z a-z 0-9 _ . : -`). Saves record it unless a `workflowId` argument names another. An unusable value is ignored with a warning. See [workflow checkpoints](#workflow-checkpoints). |
+| `CHECKPOINT_WORKFLOW_STEP` | A workflow engine (optional) | No | Unset | The step of the run this session performs (1–64 of the same characters). Saves record it unless a `step` argument names another. |
 
 ### Claude Code
 
@@ -364,6 +366,8 @@ Writes the current session's checkpoint: `<projectRoot>/.claude-checkpoints/<ses
 | `recentCommands` | `{ command, exitCode?, note? }[]` (≤ 50) | | Significant commands, oldest first. Secrets are redacted. |
 | `mode` | `"replace"` \| `"merge"` | | Default `replace`. See below. |
 | `resumedFrom` | `string` | | Selector of the checkpoint this session resumed from. Pass it on the first save after loading another session's checkpoint: a `merge` save builds on it, and either mode records it. Ignored once the session has its own checkpoint. A malformed selector is a tool error. One that doesn't exist or can't be read gives a warning, and the save goes ahead without it. |
+| `workflowId` | `string` | | The workflow run this session is a step of. Defaults to `CHECKPOINT_WORKFLOW_ID`, then to the checkpoint being continued (a `merge` save, or `resumedFrom`). Omit in ordinary sessions. See [workflow checkpoints](#workflow-checkpoints). |
+| `step` | `string` | | The workflow step. Defaults to `CHECKPOINT_WORKFLOW_STEP`, then to the checkpoint being continued. |
 | `session` | `string` | | This conversation's session id, as returned by an earlier save. Omit on Claude Code, which supplies it; if passed there, it must match. Not for picking a checkpoint to read: that's `checkpoint`. |
 | `projectRoot` | `string` (absolute) | | Overrides [root resolution](#how-the-project-root-is-chosen) |
 
@@ -445,6 +449,7 @@ Read-only. Reads the checkpoint, checks for drift, and returns the brief.
 |---|---|:-:|---|
 | `format` | `"brief"` \| `"full"` | | Default `brief` (markdown, as [above](#example-resume-brief)). `full` returns the complete checkpoint JSON plus drift. |
 | `checkpoint` | `string` | | Which checkpoint to load: a selector from `list_session_checkpoints` (a session id, or `legacy`). Omit to load the current session's own. |
+| `workflowId` | `string` | | Load the newest readable checkpoint of this workflow run, whichever session saved it. Not together with `checkpoint`. Nothing found: `found: false`. |
 | `session` | `string` | | This conversation's session id, as returned by an earlier save. Omit on Claude Code, which supplies it; if passed there, it must match. Not for picking a checkpoint to read: that's `checkpoint`. |
 | `projectRoot` | `string` (absolute) | | Overrides [root resolution](#how-the-project-root-is-chosen) |
 
@@ -489,6 +494,7 @@ Read-only. Lists the project's checkpoints, newest first; unreadable ones are li
 | Parameter | Type | Required | Description |
 |---|---|:-:|---|
 | `limit` | `integer` ≥ 0 | | Default `10`. `0` returns all of them. |
+| `workflowId` | `string` | | List only this workflow run's checkpoints. Each entry carries its `workflowId` and `step` when it has them. |
 | `session` | `string` | | This conversation's session id, as returned by an earlier save. Omit on Claude Code, which supplies it; if passed there, it must match. Not for picking a checkpoint to read: that's `checkpoint`. |
 | `projectRoot` | `string` (absolute) | | Overrides [root resolution](#how-the-project-root-is-chosen) |
 
@@ -516,6 +522,12 @@ Read-only. Lists the project's checkpoints, newest first; unreadable ones are li
   "text": "2 checkpoint(s) in /home/me/scratch, newest first: …"
 }
 ```
+
+### Workflow checkpoints
+
+For workflow engines that start Claude sessions as the steps of one run. The engine sets `CHECKPOINT_WORKFLOW_ID` (the run) and `CHECKPOINT_WORKFLOW_STEP` (the step) in each session's environment, so every save records them. When a step's session dies, the engine starts a fresh one, which calls `load_session_checkpoint` with `workflowId` to get the run's newest checkpoint from any session, then passes its selector as `resumedFrom` on its first save. `list_session_checkpoints` with `workflowId` lists the run's checkpoints, newest first, with their steps.
+
+The fields are optional parts of the `version: 1` format and the files stay where they are, so 1.0.0 reads these checkpoints too (it ignores the two fields, and drops them if it saves over one).
 
 ### How the project root is chosen
 
@@ -617,7 +629,7 @@ From 1.0.0 this project follows [semantic versioning](https://semver.org/). What
   [`test/contract.test.ts`](test/contract.test.ts) pins all of this as clients receive it from `tools/list`.
 - **The checkpoint files.** That means the `version: 1` JSON format and where files live: `.claude-checkpoints/<session-id>.json`, the `.prev` backups, and the legacy `.claude-checkpoint`. A 1.x release reads every file an earlier 1.x wrote.
 - **The legacy file.** `.claude-checkpoint` stays readable, and listed as `legacy`, through 1.x. It's written only with `CHECKPOINT_SESSION_IDS=legacy`.
-- **The environment variables.** These are `CLAUDE_CODE_SESSION_ID`, `CHECKPOINT_PROJECT_ROOT`, `CHECKPOINT_SESSION_IDS` and `SESSION_CHECKPOINT_NUDGE`, and the values they accept.
+- **The environment variables.** These are `CLAUDE_CODE_SESSION_ID`, `CHECKPOINT_PROJECT_ROOT`, `CHECKPOINT_SESSION_IDS`, `CHECKPOINT_WORKFLOW_ID`, `CHECKPOINT_WORKFLOW_STEP` and `SESSION_CHECKPOINT_NUDGE`, and the values they accept.
 - **How the project root is chosen** ([details](#how-the-project-root-is-chosen)).
 - **The plugin.** Its name (`session-checkpoint`), its two hooks (the [session-start nudge](#session-start-nudge) and the [subagent save guard](#subagent-save-guard)), and the `dist/` script paths that the manual setup registers.
 
@@ -643,6 +655,9 @@ From 1.0.0 this project follows [semantic versioning](https://semver.org/). What
   - credentials in URLs (`postgres://user:pass@…`)
   - `--password` / `--token` / `--api-key` / `--secret` flags
   - bare `sk-…`, `ghp_…`, `github_pat_…`, `AKIA…` and `xox?-…` tokens
+  - JWTs (`eyJ….….…`)
+
+  A save holding an approval payload (a `"boundCalls"`, `"idToken"` or `"attestation"` key) is refused outright, with nothing written: redacting part of one would leave the rest.
 
   Redaction is a safety net, not a guarantee, so keep the file out of version control.
 - **Owner-only, crash-safe writes.** Files are written with mode `0600`. Each save writes a temp file, fsyncs it, and renames it into place, so a crash mid-save can't leave a half-written checkpoint.
