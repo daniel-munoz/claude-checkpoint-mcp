@@ -37,9 +37,11 @@ Today a checkpoint only knows its session, so nothing ties the sessions of one r
 ## Design
 
 - **Fields.** `workflowId?: string` (1–128 of `[A-Za-z0-9_.:-]`) and `step?: string` (1–64 of the
-  same) on the checkpoint, written only when set.
+  same) on the checkpoint, written only when set. Inputs are checked against the pattern; stored
+  values only by length, so a later 1.x can widen the pattern (review, 2026-11-19).
 - **Save.** Optional `workflowId` and `step` inputs. Each falls back to `CHECKPOINT_WORKFLOW_ID` /
-  `CHECKPOINT_WORKFLOW_STEP`, then to the checkpoint being continued (merge or `resumedFrom`). An
+  `CHECKPOINT_WORKFLOW_STEP`, then to the checkpoint being continued (the session's own, or the one named by `resumedFrom`,
+  in either mode). An
   invalid env value is ignored with a warning, like `CLAUDE_CODE_SESSION_ID`; an invalid argument
   is an error.
 - **Load.** Optional `workflowId` input: the newest readable checkpoint whose `workflowId`
@@ -49,8 +51,11 @@ Today a checkpoint only knows its session, so nothing ties the sessions of one r
 - **List.** Optional `workflowId` input filters the entries. Every entry gains optional
   `workflowId` and `step` output fields, and the text line shows them.
 - **Guard.** A new redaction rule for JWTs (`eyJ…` header, payload and signature segments). A
-  save whose text contains an approval payload key — `"boundCalls"`, `"idToken"` or
-  `"attestation"` followed by `:` — is refused with an error naming the field; nothing is written.
+  workflow save (one that resolves a `workflowId`) whose text contains an approval payload key —
+  `"boundCalls"`, `"idToken"` or `"attestation"`, quotes optionally escaped, followed by `:` — is
+  refused with an error naming the field; nothing is written. Outside a workflow the refusal would
+  narrow inputs 1.0 accepts, which the Compatibility section calls breaking, so those saves are
+  unchanged (review, 2026-11-19).
 - **Docs and release.** README (tools, environment variables, Compatibility list), CHANGELOG
   1.1.0, the pinned tool-contract test, version 1.1.0 in the package, server and plugin manifests.
   Publishing (npm, registry) stays with the owner.
