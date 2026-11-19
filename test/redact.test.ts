@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRedactor, REDACTED } from "../src/redact.js";
+import { createRedactor, findApprovalPayload, REDACTED } from "../src/redact.js";
 
 function scrub(text: string) {
   const r = createRedactor();
@@ -42,5 +42,29 @@ describe("redact", () => {
     r.scrub("API_KEY=one");
     r.scrub(r.scrub("TOKEN=two"));
     expect(r.count).toBe(2);
+  });
+});
+
+describe("JWTs and approval payloads (#55)", () => {
+  const JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEiLCJpYXQiOjE3fQ.c2lnbmF0dXJlLXNpZ25hdHVyZQ";
+
+  it("redacts a three-segment JWT in prose, once", () => {
+    expect(scrub(`the token was ${JWT} yesterday`)).toEqual({ out: `the token was ${REDACTED} yesterday`, count: 1 });
+  });
+
+  it.each(["eyJ alone", "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEi only two"])("leaves %s alone", (text) => {
+    expect(scrub(text).count).toBe(0);
+  });
+
+  it("finds the first field holding an approval payload", () => {
+    expect(
+      findApprovalPayload([
+        ["goal", "Claim PROJ-1"],
+        ["summary", 'card: {"boundCalls": {"Claim": []}}'],
+        ["decisions[0]", '"idToken":"x"'],
+      ]),
+    ).toBe("summary");
+    expect(findApprovalPayload([["notes", '{"attestation" : {}}']])).toBe("notes");
+    expect(findApprovalPayload([["summary", "boundCalls are bound to the card; idToken and attestation too"]])).toBeNull();
   });
 });

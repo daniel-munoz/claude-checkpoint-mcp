@@ -88,3 +88,39 @@ describe("save records the workflow", () => {
   });
 });
 
+
+describe("approval payloads are refused", () => {
+  const PAYLOAD = '{"boundCalls": {"Claim": []}}';
+  const cases: [string, Record<string, unknown>][] = [
+    ["goal", { goal: `post ${PAYLOAD}` }],
+    ["summary", { summary: PAYLOAD }],
+    ["tasks[0].description", { tasks: [{ description: PAYLOAD, status: "pending" }] }],
+    ["nextSteps[0]", { nextSteps: [PAYLOAD] }],
+    ["decisions[0]", { decisions: [PAYLOAD] }],
+    ["recentCommands[0].command", { recentCommands: [{ command: `echo '${PAYLOAD}'` }] }],
+    ["recentCommands[0].note", { recentCommands: [{ command: "ls", note: PAYLOAD }] }],
+    ["modifiedFiles[0].note", { modifiedFiles: [{ path: "a.ts", note: PAYLOAD }] }],
+  ];
+
+  it.each(cases)("in %s, with nothing written", async (field, args) => {
+    const dir = tempDir();
+    const c = await connect({ sessionId: S1 });
+    await save(c, dir, { goal: "first" }); // so a refused save would have to make a .prev
+    const before = readFileSync(selectorPath(dir, S1), "utf8");
+    const { result, text } = await save(c, dir, args);
+    expect(result.isError).toBe(true);
+    expect(text).toContain(field);
+    expect(readFileSync(selectorPath(dir, S1), "utf8")).toBe(before);
+    expect(existsSync(backupPath(selectorPath(dir, S1)))).toBe(false);
+  });
+
+  it.each(['{"idToken" : "x"}', '{"attestation":{}}'])("%s is refused too", async (text) => {
+    const { result } = await save(await connect({ sessionId: S1 }), tempDir(), { summary: text });
+    expect(result.isError).toBe(true);
+  });
+
+  it("prose that only names the keys saves", async () => {
+    const { result } = await save(await connect({ sessionId: S1 }), tempDir(), { summary: "boundCalls are bound to the card" });
+    expect(result.isError).toBeFalsy();
+  });
+});

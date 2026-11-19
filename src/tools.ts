@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { drift as computeDrift, isIgnored, snapshot, type Drift, type GitSnapshot } from "./git.js";
 import { listCheckpoints, renderListing, type Listing } from "./listing.js";
-import { createRedactor, type Redactor } from "./redact.js";
+import { createRedactor, findApprovalPayload, type Redactor } from "./redact.js";
 import { renderBrief, shortSha } from "./render.js";
 import {
   CHECKPOINT_FILENAME,
@@ -96,6 +96,7 @@ async function guard(fn: () => Promise<CallToolResult>): Promise<CallToolResult>
 async function save(args: SaveArgs, config: SessionConfig, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
   let call = resolveCallSession(args.session, config.envId);
   if (call.id === null && config.mint) call = { id: randomUUID(), source: "minted" };
+  refuseApprovalPayloads(args);
   const root = await resolveRoot(args.projectRoot, clientRoot);
   const warnings: string[] = config.warning ? [config.warning] : [];
   const target = await saveBase(root, call, args.resumedFrom, args.mode, warnings);
@@ -105,6 +106,31 @@ async function save(args: SaveArgs, config: SessionConfig, clientRoot: () => Pro
   const bytes = await writeCheckpoint(target.file, checkpoint);
   await warnIfNotIgnored(root, target.file, call.id, warnings);
   return saveResult(target.file, bytes, args.mode, checkpoint, warnings, call);
+}
+
+/** Every text a save writes, by field. */
+function* saveTexts(args: SaveArgs): Generator<[string, string]> {
+  yield ["goal", args.goal];
+  if (args.summary !== undefined) yield ["summary", args.summary];
+  for (const [i, t] of (args.tasks ?? []).entries()) yield [`tasks[${i}].description`, t.description];
+  for (const [i, t] of (args.nextSteps ?? []).entries()) yield [`nextSteps[${i}]`, t];
+  for (const [i, t] of (args.decisions ?? []).entries()) yield [`decisions[${i}]`, t];
+  for (const [i, c] of (args.recentCommands ?? []).entries()) {
+    yield [`recentCommands[${i}].command`, c.command];
+    if (c.note !== undefined) yield [`recentCommands[${i}].note`, c.note];
+  }
+  for (const [i, f] of (args.modifiedFiles ?? []).entries()) if (f.note !== undefined) yield [`modifiedFiles[${i}].note`, f.note];
+}
+
+/** Refuses the save before anything is read or written (#55). */
+function refuseApprovalPayloads(args: SaveArgs): void {
+  const field = findApprovalPayload(saveTexts(args));
+  if (field !== null) {
+    throw new CheckpointError(
+      `${field} holds an approval payload (boundCalls, idToken or attestation); checkpoints never store those. ` +
+        "Describe it in words instead, and save again. Nothing was written.",
+    );
+  }
 }
 
 interface CheckpointInput {
