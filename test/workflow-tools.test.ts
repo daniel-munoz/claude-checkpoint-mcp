@@ -124,3 +124,69 @@ describe("approval payloads are refused", () => {
     expect(result.isError).toBeFalsy();
   });
 });
+
+describe("load and list by workflow", () => {
+  const S3 = "33333333-3333-4333-8333-333333333333";
+  function seed(dir: string) {
+    mkdirSync(path.join(dir, ".claude-checkpoints"), { recursive: true });
+    const put = (sid: string, at: string, workflowId: string, step: string) =>
+      writeFileSync(
+        selectorPath(dir, sid),
+        serialize(makeCheckpoint({ sessionId: sid, updatedAt: at, workflowId, step, goal: { primary: `goal ${sid[0]}`, tasks: [] } })),
+      );
+    put(S1, "2026-11-19T10:00:00.000Z", "run-1", "analyse");
+    put(S2, "2026-11-19T11:00:00.000Z", "run-1", "work");
+    put(S3, "2026-11-19T12:00:00.000Z", "run-2", "work");
+  }
+  const list = (c: Client, dir: string, args: Record<string, unknown> = {}) =>
+    call(c, "list_session_checkpoints", { projectRoot: dir, limit: 0, ...args });
+  const load = (c: Client, dir: string, args: Record<string, unknown> = {}) =>
+    call(c, "load_session_checkpoint", { projectRoot: dir, ...args });
+
+  it("lists a workflow's checkpoints, newest first, with their steps", async () => {
+    const dir = tempDir();
+    seed(dir);
+    const c = await connect({ sessionId: null });
+    const { data, text } = await list(c, dir, { workflowId: "run-1" });
+    expect(data.entries.map((e: any) => [e.selector, e.workflowId, e.step])).toEqual([
+      [S2, "run-1", "work"],
+      [S1, "run-1", "analyse"],
+    ]);
+    expect(text).toContain("workflow `run-1` · step `work`");
+    expect((await list(c, dir)).data.total).toBe(3);
+  });
+
+  it("loads the newest checkpoint of a workflow from any session", async () => {
+    const dir = tempDir();
+    seed(dir);
+    const { data } = await load(await connect({ sessionId: null }), dir, { workflowId: "run-1" });
+    expect([data.found, data.selector]).toEqual([true, S2]);
+    expect(data.resumeHint).toContain(S2);
+  });
+
+  it("skips an unreadable newest checkpoint for the next readable one", async () => {
+    const dir = tempDir();
+    seed(dir);
+    writeFileSync(selectorPath(dir, S2), "{not json");
+    writeFileSync(backupPath(selectorPath(dir, S2)), "{not json");
+    const { data } = await load(await connect({ sessionId: null }), dir, { workflowId: "run-1" });
+    expect(data.selector).toBe(S1);
+  });
+
+  it("finds nothing for an unknown workflow", async () => {
+    const dir = tempDir();
+    seed(dir);
+    const { data, result } = await load(await connect({ sessionId: null }), dir, { workflowId: "run-9" });
+    expect(result.isError).toBeFalsy();
+    expect(data.found).toBe(false);
+  });
+
+  it("refuses workflowId together with checkpoint, and an invalid workflowId", async () => {
+    const dir = tempDir();
+    seed(dir);
+    const c = await connect({ sessionId: null });
+    expect((await load(c, dir, { workflowId: "run-1", checkpoint: S1 })).result.isError).toBe(true);
+    expect((await load(c, dir, { workflowId: "a/b" })).result.isError).toBe(true);
+    expect((await list(c, dir, { workflowId: "a/b" })).result.isError).toBe(true);
+  });
+});

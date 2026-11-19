@@ -17,6 +17,8 @@ export interface ListEntry {
   isCurrentSession: boolean;
   fromBackup: boolean;
   resumedFrom?: string;
+  workflowId?: string;
+  step?: string;
   unreadable?: string;
 }
 
@@ -65,18 +67,22 @@ function entryFor(selector: string, checkpoint: Checkpoint, fromBackup: boolean,
     isCurrentSession: selector === currentSessionId,
     fromBackup,
     ...(checkpoint.resumedFrom !== undefined ? { resumedFrom: checkpoint.resumedFrom } : {}),
+    ...(checkpoint.workflowId !== undefined ? { workflowId: checkpoint.workflowId } : {}),
+    ...(checkpoint.step !== undefined ? { step: checkpoint.step } : {}),
   };
 }
 
 /**
  * Lists the legacy checkpoint and every session slot under the root, newest first, with
- * unreadable ones last. `limit` 0 returns everything.
+ * unreadable ones last. `limit` 0 returns everything. With `workflowId`, only that workflow's
+ * readable checkpoints are listed (an unreadable one can't be matched to a workflow).
  */
 export async function listCheckpoints(
   root: string,
   currentSessionId: string | null,
   limit: number,
   now: Date = new Date(),
+  workflowId?: string,
 ): Promise<Listing> {
   const warnings: string[] = [];
   const selectors = [LEGACY_SELECTOR, ...(await slotSelectors(root, warnings))];
@@ -103,6 +109,11 @@ export async function listCheckpoints(
     }
   }
 
+  if (workflowId !== undefined) {
+    const kept = entries.filter((e) => e.workflowId === workflowId);
+    entries.length = 0;
+    entries.push(...kept);
+  }
   entries.sort((a, b) => sortTime(b.updatedAt) - sortTime(a.updatedAt));
   const shown = limit > 0 ? entries.slice(0, limit) : entries;
   return { entries: shown, total: entries.length, omitted: entries.length - shown.length, warnings };
@@ -125,6 +136,8 @@ export function renderListing(listing: Listing): string {
       e.allTasksDone ? "all tasks done" : null,
       e.isCurrentSession ? "this session" : null,
       e.resumedFrom !== undefined ? `resumed from \`${e.resumedFrom}\`` : null,
+      e.workflowId !== undefined ? `workflow \`${e.workflowId}\`` : null,
+      e.step !== undefined ? `step \`${e.step}\`` : null,
       e.fromBackup ? "from backup" : null,
     ].filter((p) => p !== null);
     return `- ${parts.join(" · ")} — ${(e.goal ?? "").replace(/\s+/g, " ").trim()}`;

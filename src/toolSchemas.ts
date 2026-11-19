@@ -109,6 +109,11 @@ const loadInput = {
     .string()
     .optional()
     .describe("Which checkpoint to load, as a selector from list_session_checkpoints: a session id, or 'legacy'. Omit to load this session's own checkpoint."),
+  workflowId: z
+    .string()
+    .regex(WORKFLOW_ID_PATTERN)
+    .optional()
+    .describe("Load the newest checkpoint of this workflow run, whichever session saved it (for workflow engines). Not with checkpoint."),
   session: sessionArg,
   projectRoot: projectRootArg,
 };
@@ -123,6 +128,8 @@ const listEntryOutput = z.object({
   isCurrentSession: z.boolean(),
   fromBackup: z.boolean(),
   resumedFrom: z.string().optional(),
+  workflowId: z.string().optional(),
+  step: z.string().optional(),
   unreadable: z.string().optional(),
 });
 
@@ -133,6 +140,11 @@ const listInput = {
     .min(0)
     .default(DEFAULT_LIST_LIMIT)
     .describe("Maximum number of checkpoints to return, newest first. 0 returns all of them."),
+  workflowId: z
+    .string()
+    .regex(WORKFLOW_ID_PATTERN)
+    .optional()
+    .describe("List only the checkpoints of this workflow run."),
   session: sessionArg,
   projectRoot: projectRootArg,
 };

@@ -368,6 +368,11 @@ async function load(args: LoadArgs, config: SessionConfig, clientRoot: () => Pro
   // With minting on, a caller without an id has no checkpoint of its own: the legacy file is one more to pick from.
   const own = call.id ?? (config.mint ? null : LEGACY_SELECTOR);
 
+  if (args.workflowId !== undefined) {
+    if (args.checkpoint !== undefined) throw new CheckpointError("Pass checkpoint or workflowId, not both.");
+    return loadWorkflow(root, args.workflowId, own, args.format, call.id, ctx);
+  }
+
   if (args.checkpoint !== undefined) {
     const file = selectorPath(root, args.checkpoint);
     const result = await readCheckpoint(file);
@@ -397,6 +402,34 @@ async function load(args: LoadArgs, config: SessionConfig, clientRoot: () => Pro
     };
   }
   return candidates(root, file, listing, ctx);
+}
+
+/** The newest readable checkpoint of a workflow run, from any session (#55). */
+async function loadWorkflow(
+  root: string,
+  workflowId: string,
+  own: string | null,
+  format: "brief" | "full",
+  sessionId: string | null,
+  ctx: LoadContext,
+): Promise<CallToolResult> {
+  const listing = await listCheckpoints(root, sessionId, 0, new Date(), workflowId);
+  for (const entry of listing.entries) {
+    const file = selectorPath(root, entry.selector);
+    const result = await readCheckpoint(file).catch(() => null);
+    if (result === null) continue;
+    const resumeHint =
+      entry.selector === own
+        ? undefined
+        : `To continue from this checkpoint, pass \`resumedFrom: ${JSON.stringify(entry.selector)}\` on your next save_session_checkpoint call.`;
+    return loaded({ root, selector: entry.selector, file, result, format, resumeHint }, ctx);
+  }
+  const dir = path.join(root, SLOTS_DIRNAME);
+  const text = withNote(`No checkpoint of workflow ${JSON.stringify(workflowId)} in ${root}. Nothing to resume; start fresh.`, ctx.note);
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: { found: false, path: dir, warnings: [...ctx.sessionWarnings, ...listing.warnings], ...sessionField(ctx) },
+  };
 }
 
 /** What every load result carries besides the checkpoint or list: the caller's id, its note and warnings. */
@@ -498,7 +531,7 @@ async function loaded({ root, selector, file, result, format, resumeHint }: Load
 async function list(args: ListArgs, config: SessionConfig, clientRoot: () => Promise<string | undefined>): Promise<CallToolResult> {
   const call = resolveCallSession(args.session, config.envId);
   const root = await resolveRoot(args.projectRoot, clientRoot);
-  const listing = await listCheckpoints(root, call.id, args.limit);
+  const listing = await listCheckpoints(root, call.id, args.limit, new Date(), args.workflowId);
   const warnings = [...(config.warning ? [config.warning] : []), ...listing.warnings];
   const text = withNote(
     listing.total === 0
