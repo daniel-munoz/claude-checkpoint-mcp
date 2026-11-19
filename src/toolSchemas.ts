@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LIMITS, Task } from "./schema.js";
+import { STEP_PATTERN, WORKFLOW_ID_PATTERN } from "./workflow.js";
 
 export const DEFAULT_LIST_LIMIT = 10;
 
@@ -67,6 +68,19 @@ const saveInput = {
         "Pass it on the first save after loading another session's checkpoint: a merge save then builds on it, and the link is recorded. " +
         "Ignored once this session has its own checkpoint.",
     ),
+  workflowId: z
+    .string()
+    .regex(WORKFLOW_ID_PATTERN)
+    .optional()
+    .describe(
+      "The workflow run this session is a step of, for workflow engines. Defaults to CHECKPOINT_WORKFLOW_ID, " +
+        "then to the checkpoint being continued. Omit in ordinary sessions.",
+    ),
+  step: z
+    .string()
+    .regex(STEP_PATTERN)
+    .optional()
+    .describe("The workflow step this session runs. Defaults to CHECKPOINT_WORKFLOW_STEP, then to the checkpoint being continued."),
   session: sessionArg,
   projectRoot: projectRootArg,
 };

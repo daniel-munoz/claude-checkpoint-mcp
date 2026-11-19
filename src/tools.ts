@@ -101,7 +101,7 @@ async function save(args: SaveArgs, config: SessionConfig, clientRoot: () => Pro
   const target = await saveBase(root, call, args.resumedFrom, args.mode, warnings);
   const git = await snapshot(root, MAX_HASHED_CHANGES);
 
-  const checkpoint = buildCheckpoint({ args, root, sessionId: call.id, target, git, redactor: createRedactor(), warnings });
+  const checkpoint = buildCheckpoint({ args, root, sessionId: call.id, target, git, redactor: createRedactor(), warnings, workflow: config.workflow });
   const bytes = await writeCheckpoint(target.file, checkpoint);
   await warnIfNotIgnored(root, target.file, call.id, warnings);
   return saveResult(target.file, bytes, args.mode, checkpoint, warnings, call);
@@ -115,6 +115,7 @@ interface CheckpointInput {
   git: GitSnapshot | null;
   redactor: Redactor;
   warnings: string[];
+  workflow: SessionConfig["workflow"];
 }
 
 /** The checkpoint a save writes: the agent's input, redacted and merged onto the base, within the size limits. */
@@ -127,6 +128,7 @@ function buildCheckpoint(input: CheckpointInput): Checkpoint {
 
   const checkpoint: Checkpoint = {
     ...identity(target, root, sessionId, now),
+    ...workflowFields(input),
     git: git?.state ?? null,
     goal: { primary: redactor.scrub(args.goal), tasks: content.tasks },
     summary: content.summary,
@@ -139,6 +141,14 @@ function buildCheckpoint(input: CheckpointInput): Checkpoint {
   if (fitToSize(checkpoint)) warnings.push(`Older commands or files were dropped to keep the checkpoint under ${MAX_FILE_KB} KB.`);
   if (redactor.count > 0) warnings.push(`Redacted ${redactor.count} secret-looking value(s).`);
   return checkpoint;
+}
+
+/** The workflow run and step (#55): the argument, then the environment, then the checkpoint being continued. */
+function workflowFields({ args, workflow, target }: CheckpointInput): Pick<Checkpoint, "workflowId" | "step"> {
+  const base = target.previous?.checkpoint;
+  const workflowId = args.workflowId ?? workflow.workflowId ?? base?.workflowId;
+  const step = args.step ?? workflow.step ?? base?.step;
+  return { ...(workflowId ? { workflowId } : {}), ...(step ? { step } : {}) };
 }
 
 /** Version, ids and timestamps. Continuing the session's own checkpoint keeps its id and createdAt. */
